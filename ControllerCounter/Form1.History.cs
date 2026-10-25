@@ -16,7 +16,7 @@ namespace ControllerCounter
         private Timer recordTimer;
         private double[] recordedCounters = new double[6];
         private ComboBox historyRange, historyUnit, historyMetric, historyChartType, historyValueMode;
-        private DataGridView historyGrid;
+        private HistoryGrid historyGrid;
         private Label historyStatus;
         private HistoryChartPanel historyChart;
         private NumericUpDown chartSpacing;
@@ -48,7 +48,7 @@ namespace ControllerCounter
             refresh.Click += (s, e) => RefreshHistory();
             filters.Controls.Add(refresh);
             historyStatus = new Label { Dock = DockStyle.Bottom, Height = 58, AutoEllipsis = true };
-            historyGrid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
+            historyGrid = new HistoryGrid { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false, VirtualMode = true, AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false };
             foreach (string title in new[] { "期間開始", "キー", "左クリック", "右クリック", "ホイール", "移動(m)", "ドラッグ(m)", "総距離(m)" })
                 historyGrid.Columns.Add(title, title);
@@ -202,8 +202,18 @@ namespace ControllerCounter
             historyChart.Invalidate();
         }
 
+        private sealed class HistoryGrid : DataGridView
+        {
+            public bool DrawingSuspended { get; set; }
+            protected override void OnPaint(PaintEventArgs e) { if (!DrawingSuspended) base.OnPaint(e); }
+            protected override void OnPaintBackground(PaintEventArgs e) { if (!DrawingSuspended) base.OnPaintBackground(e); }
+        }
+
         private sealed class HistoryChartPanel : Panel
         {
+            public bool DrawingSuspended { get; set; }
+            protected override void OnPaint(PaintEventArgs e) { if (!DrawingSuspended) base.OnPaint(e); }
+            protected override void OnPaintBackground(PaintEventArgs e) { if (!DrawingSuspended) base.OnPaintBackground(e); }
             private readonly VScrollBar verticalBar;
             private readonly HScrollBar horizontalBar;
             private int contentLength;

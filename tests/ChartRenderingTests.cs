@@ -1,6 +1,7 @@
 // Windows-only regression harness. No input hooks, timers, or history files are used.
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace ControllerCounter
@@ -10,6 +11,9 @@ namespace ControllerCounter
         private int keyCount = 0, leftClickCount = 0, rightClickCount = 0, wheelCount = 0;
         private double mouseMoveDistance = 0, dragDistance = 0;
         private static int checks;
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsWindowVisible(IntPtr window);
         private void UpdateDisplay() { } // The harness has no live counter label.
 
         private static void Check(bool condition, string message)
@@ -83,9 +87,12 @@ namespace ControllerCounter
                             }
                         }
                     }
+                    var originalHandle = form.Handle;
+                    form.historyGrid = new HistoryGrid();
                     form.OnResizeBegin(EventArgs.Empty);
                     Check(form.isInteractiveResize, "Resize begins with painting suspended");
-                    Check(form.resizeRedrawHandle == form.Handle, "Redraw suspension tracks the current HWND");
+                    Check(form.Handle == originalHandle && IsWindowVisible(form.Handle), "Resizing keeps the top-level HWND visible");
+                    Check(form.historyChart.DrawingSuspended && form.historyGrid.DrawingSuspended, "Heavy child controls suspend painting");
                     form.ClientSize = new Size(620, 340);
                     using (var frame = new Bitmap(620, 340))
                     using (var graphics = Graphics.FromImage(frame))
@@ -95,7 +102,10 @@ namespace ControllerCounter
                         Check(frame.GetPixel(8, 8).ToArgb() == Color.Magenta.ToArgb(), "Chart skips painting during resize");
                     }
                     form.OnResizeEnd(EventArgs.Empty);
-                    Check(!form.isInteractiveResize && form.resizeRedrawHandle == IntPtr.Zero, "Resize end restores drawing");
+                    Check(!form.isInteractiveResize && !form.historyChart.DrawingSuspended && !form.historyGrid.DrawingSuspended,
+                        "Resize end restores managed painting");
+                    Check(form.Handle == originalHandle && IsWindowVisible(form.Handle), "Resize end preserves the same visible window");
+                    form.historyGrid.Dispose();
                     Check(form.historyChart.ClientSize.Width == form.ClientSize.Width, "Deferred docking completes at resize end");
                     form.OnResizeEnd(EventArgs.Empty); // Safe if a duplicate completion event arrives.
                     form.LayoutHistoryChart(true);
