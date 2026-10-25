@@ -69,7 +69,7 @@ namespace ControllerCounter
         private void SetupUi()
         {
             this.Text = "入力カウンター";
-            this.Size = new Size(520, 360);
+            this.Size = new Size(1000, 650);
             this.StartPosition = FormStartPosition.CenterScreen;
 
             var panel = new Panel();
@@ -101,8 +101,16 @@ namespace ControllerCounter
             lblStatus.TextAlign = ContentAlignment.MiddleLeft;
             lblStatus.Padding = new Padding(20);
 
-            this.Controls.Add(lblStatus);
-            this.Controls.Add(panel);
+            var tabs = new TabControl { Dock = DockStyle.Fill };
+            var currentPage = new TabPage("今回の入力");
+            var historyPage = new TabPage("履歴・推移");
+            currentPage.Controls.Add(lblStatus);
+            currentPage.Controls.Add(panel);
+            tabs.TabPages.Add(currentPage);
+            tabs.TabPages.Add(historyPage);
+            this.Controls.Add(tabs);
+            SetupHistoryUi(historyPage);
+            tabs.SelectedIndexChanged += (s, e) => { if (tabs.SelectedTab == historyPage && historyDirty) RefreshHistory(); };
 
             UpdateDisplay();
         }
@@ -188,9 +196,17 @@ namespace ControllerCounter
 
             if (dialog.ShowDialog() == DialogResult.OK)
             {
-                ImportCsv(dialog.FileName);
-                UpdateDisplay();
-                MessageBox.Show("CSV読み込みしました。", "完了");
+                try
+                {
+                    ImportCsv(dialog.FileName);
+                    UpdateDisplay();
+                    MessageBox.Show("CSV読み込みしました。", "完了");
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException ||
+                    ex is FormatException || ex is OverflowException)
+                {
+                    MessageBox.Show("CSVを読み込めませんでした: " + ex.Message, "読み込みエラー");
+                }
             }
         }
 
@@ -205,13 +221,26 @@ namespace ControllerCounter
             }
 
             string[] values = SplitCsvLine(lines[1]);
-
-            keyCount = int.Parse(values[1]);
-            leftClickCount = int.Parse(values[2]);
-            rightClickCount = int.Parse(values[3]);
-            wheelCount = int.Parse(values[4]);
-            mouseMoveDistance = double.Parse(values[5]);
-            dragDistance = double.Parse(values[6]);
+            if (values.Length < 7) throw new FormatException("必要な列がありません。");
+            int importedKeys = int.Parse(values[1]);
+            int importedLeft = int.Parse(values[2]);
+            int importedRight = int.Parse(values[3]);
+            int importedWheel = int.Parse(values[4]);
+            double importedMove = double.Parse(values[5]);
+            double importedDrag = double.Parse(values[6]);
+            if (importedKeys < 0 || importedLeft < 0 || importedRight < 0 || importedWheel < 0 ||
+                importedMove < 0 || importedDrag < 0 || double.IsNaN(importedMove) || double.IsNaN(importedDrag) ||
+                double.IsInfinity(importedMove) || double.IsInfinity(importedDrag))
+                throw new FormatException("入力数・距離は有限の非負値にしてください。");
+            // Flush activity before replacing counters; imported totals are not new activity.
+            if (!SaveHistorySample()) throw new IOException("履歴を保存できないため読み込みを中止しました。");
+            keyCount = importedKeys;
+            leftClickCount = importedLeft;
+            rightClickCount = importedRight;
+            wheelCount = importedWheel;
+            mouseMoveDistance = importedMove;
+            dragDistance = importedDrag;
+            recordedCounters = CurrentCounters();
         }
 
         private string Csv(string value)
@@ -250,11 +279,21 @@ namespace ControllerCounter
                 ExportCsvWithDialog();
             }
 
+            if (!SaveHistorySample() && MessageBox.Show("履歴を保存できませんでした。終了しますか？", "保存エラー",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                e.Cancel = true;
+                return;
+            }
             base.OnFormClosing(e);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            recordTimer.Stop();
+            recordTimer.Dispose();
+            updateTimer.Stop();
+            updateTimer.Dispose();
             UnhookWindowsHookEx(keyboardHookId);
             UnhookWindowsHookEx(mouseHookId);
             base.OnFormClosed(e);
