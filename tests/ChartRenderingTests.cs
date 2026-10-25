@@ -35,6 +35,8 @@ namespace ControllerCounter
                     form.historyChart.Paint += form.PaintHistoryChart;
                     form.automaticValueAxis = new CheckBox { Checked = true };
                     form.valueAxisStep = new NumericUpDown { DecimalPlaces = 3, Minimum = 0.001m, Maximum = 1000000000m, Value = 1 };
+                    form.automaticValueMaximum = new CheckBox { Checked = true };
+                    form.valueAxisMaximum = new NumericUpDown { DecimalPlaces = 3, Minimum = 0.001m, Maximum = 1000000000m, Value = 50 };
                     form.historyMetric = HistoryChoice(MetricNames, 0);
                     form.historyChartType = HistoryChoice(new[] { "Line", "Bar", "Vertical bar" }, 1);
                     form.historyValueMode = HistoryChoice(new[] { "Interval", "Cumulative" }, 0);

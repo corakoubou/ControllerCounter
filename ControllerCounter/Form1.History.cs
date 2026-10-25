@@ -79,6 +79,9 @@ namespace ControllerCounter
             automaticValueAxis = new CheckBox { Text = "数値目盛り: 自動", Checked = true, AutoSize = true };
             valueAxisStep = new NumericUpDown { DecimalPlaces = 3, Minimum = 0.001m, Maximum = 1000000000m,
                 Value = 1, Increment = 1, Width = 110, Enabled = false };
+            automaticValueMaximum = new CheckBox { Text = "数値上限: 自動", Checked = true, AutoSize = true };
+            valueAxisMaximum = new NumericUpDown { DecimalPlaces = 3, Minimum = 0.001m, Maximum = 1000000000m,
+                Value = 100, Increment = 10, Width = 110, Enabled = false };
             historyMetric.SelectedIndexChanged += (s, e) => { ApplyMetricAxisPreferences(); historyChart.Invalidate(); };
             historyChartType.SelectedIndexChanged += (s, e) =>
             {
@@ -89,6 +92,9 @@ namespace ControllerCounter
             historyValueMode.SelectedIndexChanged += (s, e) => historyChart.Invalidate();
             var graphOptions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true,
                 FlowDirection = FlowDirection.RightToLeft, WrapContents = true };
+            graphOptions.Controls.Add(valueAxisMaximum);
+            graphOptions.Controls.Add(new Label { Text = "数値の上限", AutoSize = true });
+            graphOptions.Controls.Add(automaticValueMaximum);
             graphOptions.Controls.Add(valueAxisStep);
             graphOptions.Controls.Add(new Label { Text = "数値の刻み", AutoSize = true });
             graphOptions.Controls.Add(automaticValueAxis);
@@ -312,9 +318,10 @@ namespace ControllerCounter
             }
             var area = new Rectangle(115, 32, Math.Max(1, historyChart.PlotClientWidth - 145), Math.Max(10, historyChart.PlotClientHeight - 62));
             var axis = ChartValueAxis.Create(chartData.Maximum(metric, cumulative), automaticValueAxis.Checked,
-                valueAxisStep.Value, verticalBars ? area.Height : area.Width);
+                valueAxisStep.Value, verticalBars ? area.Height : area.Width,
+                automaticValueMaximum.Checked, valueAxisMaximum.Value);
             double max = axis.Maximum;
-            e.Graphics.DrawString(heading + (axis.IsThinned ? " / 数値目盛りを間引き表示" : ""), Font, Brushes.Black, 8, 4);
+            e.Graphics.DrawString(heading + (axis.IsThinned ? " / 数値目盛りを間引き表示" : "") + (axis.MaximumExpanded ? " / データに合わせ上限を拡張" : ""), Font, Brushes.Black, 8, 4);
             double spacing = (double)chartSpacing.Value;
             int scroll = historyChart.ScrollOffset;
             int timeLength = verticalBars ? area.Width : area.Height;

@@ -116,18 +116,34 @@ internal static class HistoryTests
             Check(manualAxis.Maximum == 3 && manualAxis.Ticks.SequenceEqual(new double[] { 0, 1, 2, 3 }),
                 "Manual value axis draws the requested one-meter increments");
             var fractionalAxis = ChartValueAxis.Create(2.34, false, 0.5m, 500);
-            Check(fractionalAxis.Maximum == 2.5 && fractionalAxis.Ticks.Count == 6 && fractionalAxis.Ticks[1] == 0.5,
+            Check(fractionalAxis.Maximum == 3 && fractionalAxis.Ticks.Count == 7 && fractionalAxis.Ticks[1] == 0.5,
                 "Manual value axis supports fractional meter increments");
-            Check(Math.Abs(ChartValueAxis.Create(0.07, false, 0.01m, 500).Maximum - 0.07) < 0.000001,
+            Check(Math.Abs(ChartValueAxis.Create(0.07, false, 0.01m, 500, false, 0.07m).Maximum - 0.07) < 0.000001,
                 "Decimal tick boundaries do not gain an extra interval");
             var automaticAxis = ChartValueAxis.Create(2.34, true, 1m, 500);
-            Check(automaticAxis.Maximum == 2.34 && automaticAxis.Ticks.Count == 5,
-                "Automatic value axis retains the existing scale");
+            Check(automaticAxis.Maximum == 3 && automaticAxis.Ticks.Count > 5,
+                "Automatic value axis uses a rounded maximum with fine grid lines");
             var denseAxis = ChartValueAxis.Create(1000000000, false, 0.001m, 400);
             Check(denseAxis.IsThinned && denseAxis.Ticks.Count <= 102 && denseAxis.Maximum >= 1000000000,
                 "Tiny requested intervals never create an unbounded paint loop");
-            Check(ChartValueAxis.Create(0, false, 0.5m, 400).Maximum == 0.5,
+            Check(ChartValueAxis.Create(0, false, 0.5m, 400).Maximum == 1,
                 "A zero-data manual axis has a nonzero extent");
+            var coarseGrid = ChartValueAxis.Create(21.3, false, 50m, 800, false, 50m);
+            var mediumGrid = ChartValueAxis.Create(21.3, false, 10m, 800, false, 50m);
+            var fineGrid = ChartValueAxis.Create(21.3, false, 1m, 800, false, 50m);
+            Check(coarseGrid.Maximum == 50 && mediumGrid.Maximum == 50 && fineGrid.Maximum == 50,
+                "Changing grid intervals never changes the explicitly set upper bound");
+            Check(coarseGrid.Ticks.Count == 2 && mediumGrid.Ticks.Count == 6 && fineGrid.Ticks.Count == 51,
+                "A fifty-meter scale can display one-meter grid lines");
+            Check(ChartValueAxis.Create(21.3, false, 50m, 800).Maximum ==
+                ChartValueAxis.Create(21.3, false, 1m, 800).Maximum,
+                "Automatic upper bound is independent of manual grid interval");
+            var overflowAxis = ChartValueAxis.Create(61, false, 1m, 800, false, 50m);
+            Check(overflowAxis.Maximum >= 61 && overflowAxis.MaximumExpanded,
+                "Data exceeding a fixed maximum remains visible and reports scale expansion");
+            var shortAxis = ChartValueAxis.Create(1, true, 1m, 800);
+            Check(shortAxis.Ticks.Select(t => t.ToString("0.#")).Distinct().Count() == shortAxis.Ticks.Count,
+                "Fine automatic grids retain distinct one-decimal labels");
             string preferencesPath = Path.Combine(directory, "view-settings.xml");
             string preferencesWarning;
             var preferences = ViewPreferences.Load(preferencesPath, out preferencesWarning);
@@ -140,6 +156,8 @@ internal static class HistoryTests
             preferences.AutomaticAxis[5] = false;
             preferences.AxisSteps[5] = 0.5m;
             preferences.AxisSteps[0] = 100;
+            preferences.AutomaticMaximum[5] = false;
+            preferences.AxisMaximums[5] = 50;
             preferences.Save(preferencesPath);
             var restored = ViewPreferences.Load(preferencesPath, out preferencesWarning);
             Check(preferencesWarning == null && restored.Range == preferences.Range && restored.Unit == preferences.Unit &&
@@ -148,6 +166,13 @@ internal static class HistoryTests
             Check(restored.TimeSpacing == 12 && !restored.VisibleColumns[0] && restored.VisibleColumns[1] &&
                 !restored.AutomaticAxis[5] && restored.AxisSteps[5] == 0.5m && restored.AxisSteps[0] == 100,
                 "Visibility, spacing and independent metric steps survive restart across cultures");
+            Check(!restored.AutomaticMaximum[5] && restored.AxisMaximums[5] == 50 && restored.AutomaticMaximum[0],
+                "Per-metric upper limits survive restart independently from grid steps");
+            string legacyPath = Path.Combine(directory, "legacy-settings.xml");
+            File.WriteAllText(legacyPath, "<ViewPreferences><TimeSpacing>12</TimeSpacing></ViewPreferences>");
+            var legacyPreferences = ViewPreferences.Load(legacyPath, out preferencesWarning);
+            Check(preferencesWarning == null && legacyPreferences.TimeSpacing == 12 && legacyPreferences.AutomaticMaximum.All(v => v),
+                "Older settings restore with automatic upper limits");
             restored.TimeSpacing = 20;
             restored.Save(preferencesPath);
             Check(ViewPreferences.Load(preferencesPath, out preferencesWarning).TimeSpacing == 20 && Directory.GetFiles(directory, "*.tmp").Length == 0,

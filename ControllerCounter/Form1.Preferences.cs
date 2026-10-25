@@ -13,7 +13,8 @@ namespace ControllerCounter
         private ViewPreferences viewPreferences = new ViewPreferences();
         private readonly List<CheckBox> columnChecks = new List<CheckBox>();
         private CheckBox automaticValueAxis;
-        private NumericUpDown valueAxisStep;
+        private NumericUpDown valueAxisStep, valueAxisMaximum;
+        private CheckBox automaticValueMaximum;
         private Timer preferencesSaveTimer;
         private Label preferencesStatus;
         private bool applyingPreferences;
@@ -48,6 +49,8 @@ namespace ControllerCounter
             foreach (var check in columnChecks) check.CheckedChanged += (s, e) => SchedulePreferencesSave();
             automaticValueAxis.CheckedChanged += (s, e) => StoreMetricAxisPreferences();
             valueAxisStep.ValueChanged += (s, e) => StoreMetricAxisPreferences();
+            automaticValueMaximum.CheckedChanged += (s, e) => StoreMetricAxisPreferences();
+            valueAxisMaximum.ValueChanged += (s, e) => StoreMetricAxisPreferences();
             // Flush changes if the application closes before the debounce timer fires.
             FormClosed += (s, e) => { SaveViewPreferences(); preferencesSaveTimer.Dispose(); };
         }
@@ -68,6 +71,9 @@ namespace ControllerCounter
                 automaticValueAxis.Checked = viewPreferences.AutomaticAxis[metric];
                 valueAxisStep.Value = viewPreferences.AxisSteps[metric];
                 valueAxisStep.Enabled = !automaticValueAxis.Checked;
+                automaticValueMaximum.Checked = viewPreferences.AutomaticMaximum[metric];
+                valueAxisMaximum.Value = viewPreferences.AxisMaximums[metric];
+                valueAxisMaximum.Enabled = !automaticValueMaximum.Checked;
             }
             finally { applyingPreferences = previous; }
         }
@@ -79,6 +85,9 @@ namespace ControllerCounter
             viewPreferences.AutomaticAxis[metric] = automaticValueAxis.Checked;
             viewPreferences.AxisSteps[metric] = valueAxisStep.Value;
             valueAxisStep.Enabled = !automaticValueAxis.Checked;
+            viewPreferences.AutomaticMaximum[metric] = automaticValueMaximum.Checked;
+            viewPreferences.AxisMaximums[metric] = valueAxisMaximum.Value;
+            valueAxisMaximum.Enabled = !automaticValueMaximum.Checked;
             historyChart.Invalidate();
             SchedulePreferencesSave();
         }
