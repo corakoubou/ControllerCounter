@@ -96,6 +96,22 @@ internal static class HistoryTests
             sparseData.VisibleRange(400, 410, out first, out end);
             Check(first == 0 && end == 2 && sparseData.Buckets[1] == 1000,
                 "Missing periods preserve spacing and both potential line endpoints");
+            foreach (var unit in new[] { TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(30), TimeSpan.FromHours(3), TimeSpan.FromHours(5), TimeSpan.FromHours(8) })
+            {
+                var boundary = new DateTimeOffset(new DateTime(start.LocalDateTime.Ticks / unit.Ticks * unit.Ticks, DateTimeKind.Local));
+                var samples = new[]
+                {
+                    new HistoryRecord { Time = boundary.AddSeconds(1), Values = new double[] { 2, 0, 0, 0, 0, 0 } },
+                    new HistoryRecord { Time = boundary.Add(unit).AddSeconds(-1), Values = new double[] { 3, 0, 0, 0, 0, 0 } },
+                    new HistoryRecord { Time = boundary.Add(unit), Values = new double[] { 7, 0, 0, 0, 0, 0 } }
+                };
+                var buckets = HistoryStore.Aggregate(samples, unit);
+                Check(buckets.Count == 2 && buckets[0].Values[0] == 5 && buckets[1].Values[0] == 7,
+                    "Aggregation respects boundary for " + unit);
+                var series = new HistoryChartData(buckets, unit);
+                Check(series.Value(1, 0, true) == 12 && series.Buckets[1] == 1,
+                    "Cumulative totals and chart spacing work for " + unit);
+            }
             Console.WriteLine("Paint candidates for a 60-minute viewport: 63 / 43,200 records");
             Console.WriteLine("PASS: " + checks + " history checks");
         }

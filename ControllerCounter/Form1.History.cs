@@ -36,7 +36,7 @@ namespace ControllerCounter
         {
             var filters = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 42, AutoSize = true };
             historyRange = HistoryChoice(new[] { "過去10分", "過去1時間", "過去6時間", "過去24時間", "過去7日", "過去30日" }, 3);
-            historyUnit = HistoryChoice(new[] { "1分", "5分", "1時間", "1日" }, 0);
+            historyUnit = HistoryChoice(new[] { "1分", "5分", "15分", "30分", "1時間", "3時間", "5時間", "8時間", "1日" }, 0);
             filters.Controls.Add(new Label { Text = "期間", AutoSize = true });
             filters.Controls.Add(historyRange);
             filters.Controls.Add(new Label { Text = "集計単位", AutoSize = true });
@@ -163,7 +163,7 @@ namespace ControllerCounter
             {
                 var now = DateTimeOffset.Now;
                 var spans = new[] { TimeSpan.FromMinutes(10), TimeSpan.FromHours(1), TimeSpan.FromHours(6), TimeSpan.FromDays(1), TimeSpan.FromDays(7), TimeSpan.FromDays(30) };
-                var units = new[] { TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5), TimeSpan.FromHours(1), TimeSpan.FromDays(1) };
+                var units = new[] { TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(30), TimeSpan.FromHours(1), TimeSpan.FromHours(3), TimeSpan.FromHours(5), TimeSpan.FromHours(8), TimeSpan.FromDays(1) };
                 int invalid;
                 var records = historyStore.Read(now - spans[historyRange.SelectedIndex], now, out invalid);
                 chartUnit = units[historyUnit.SelectedIndex];
