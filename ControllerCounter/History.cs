@@ -18,7 +18,7 @@ namespace ControllerCounter
     internal static class HistoryTimeline
     {
         // Pixel spacing is per aggregation bucket, including missing buckets.
-        public static double GetX(DateTimeOffset time, DateTimeOffset start, TimeSpan unit, double spacing)
+        public static double GetOffset(DateTimeOffset time, DateTimeOffset start, TimeSpan unit, double spacing)
         {
             if (unit.Ticks <= 0) throw new ArgumentOutOfRangeException("unit");
             if (spacing <= 0 || double.IsInfinity(spacing) || double.IsNaN(spacing))

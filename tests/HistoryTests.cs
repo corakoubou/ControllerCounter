@@ -43,20 +43,23 @@ internal static class HistoryTests
             records = reopened.Read(start, start.AddDays(2), out invalid);
             Check(records.Count == 4 && invalid == 2, "Damaged records skipped and reported");
             Check(HistoryStore.Aggregate(new HistoryRecord[0], TimeSpan.FromDays(1)).Count == 0, "Empty aggregation");
-            Check(HistoryTimeline.GetX(start.AddMinutes(1), start, TimeSpan.FromMinutes(1), 40) == 40,
+            Check(HistoryTimeline.GetOffset(start.AddMinutes(1), start, TimeSpan.FromMinutes(1), 40) == 40,
                 "One minute uses the configured pixel spacing");
-            Check(HistoryTimeline.GetX(start.AddMinutes(2), start, TimeSpan.FromMinutes(1), 40) == 80,
+            Check(HistoryTimeline.GetOffset(start.AddMinutes(2), start, TimeSpan.FromMinutes(1), 40) == 80,
                 "Two minutes retain two bucket widths");
-            Check(HistoryTimeline.GetX(start.AddMinutes(2), start, TimeSpan.FromMinutes(1), 100) == 200,
+            Check(HistoryTimeline.GetOffset(start.AddMinutes(2), start, TimeSpan.FromMinutes(1), 100) == 200,
                 "Zoom changes time spacing");
-            Check(HistoryTimeline.GetX(start.AddMinutes(5), start, TimeSpan.FromMinutes(1), 40) == 200,
+            Check(HistoryTimeline.GetOffset(start.AddMinutes(5), start, TimeSpan.FromMinutes(1), 40) == 200,
                 "Missing buckets retain their time-axis width");
-            Check(HistoryTimeline.GetX(start.AddHours(2), start, TimeSpan.FromHours(1), 60) == 120,
+            Check(HistoryTimeline.GetOffset(start.AddHours(2), start, TimeSpan.FromHours(1), 60) == 120,
                 "Hourly units use the same pixel spacing rule");
-            Check(HistoryTimeline.GetX(start.AddDays(2), start, TimeSpan.FromDays(1), 60) == 120,
+            Check(HistoryTimeline.GetOffset(start.AddDays(2), start, TimeSpan.FromDays(1), 60) == 120,
                 "Daily units use the same pixel spacing rule");
-            Check(HistoryTimeline.GetX(start.ToOffset(TimeSpan.FromHours(9)), start, TimeSpan.FromMinutes(1), 40) == 0,
+            Check(HistoryTimeline.GetOffset(start.ToOffset(TimeSpan.FromHours(9)), start, TimeSpan.FromMinutes(1), 40) == 0,
                 "Equivalent timestamps have the same position");
+            Check(HistoryTimeline.GetOffset(start, start, TimeSpan.FromMinutes(1), 40) <
+                HistoryTimeline.GetOffset(start.AddMinutes(1), start, TimeSpan.FromMinutes(1), 40),
+                "Older time rows are above newer time rows");
             Console.WriteLine("PASS: " + checks + " history checks");
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
