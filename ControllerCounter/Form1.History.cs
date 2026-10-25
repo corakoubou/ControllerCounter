@@ -212,9 +212,10 @@ namespace ControllerCounter
         private void LayoutHistoryChart(bool resetScroll)
         {
             if (historyChart == null || chartUnit.Ticks <= 0) return;
-            int height = chartRecords.Count == 0 ? 0 :
-                (int)Math.Ceiling(HistoryTimeline.GetOffset(chartTo, chartFrom, chartUnit, (double)chartSpacing.Value)) + 75;
-            historyChart.ContentLength = height + (historyChart.HorizontalTimeline && height > 0 ? 70 : 0);
+            // The final time row may reach the start of the viewport. The rest
+            // is finite trailing space, not more data or an endless timeline.
+            historyChart.MaximumScrollOffset = chartData.Count == 0 ? 0 :
+                (int)Math.Ceiling(chartData.Buckets[chartData.Count - 1] * (double)chartSpacing.Value);
             if (resetScroll) historyChart.ScrollOffset = 0;
             historyChart.Invalidate();
         }
@@ -233,7 +234,7 @@ namespace ControllerCounter
             protected override void OnPaintBackground(PaintEventArgs e) { if (!DrawingSuspended) base.OnPaintBackground(e); }
             private readonly VScrollBar verticalBar;
             private readonly HScrollBar horizontalBar;
-            private int contentLength;
+            private int maximumScrollOffset;
             private bool horizontalTimeline;
             private ScrollBar ActiveBar { get { return horizontalTimeline ? (ScrollBar)horizontalBar : verticalBar; } }
             private int ViewportLength { get { return horizontalTimeline ? ClientSize.Width : ClientSize.Height; } }
@@ -261,12 +262,18 @@ namespace ControllerCounter
             public int ScrollOffset
             {
                 get { return ActiveBar.Value; }
-                set { ActiveBar.Value = Math.Max(0, Math.Min(value, Math.Max(0, contentLength - ViewportLength))); }
+                set { ActiveBar.Value = Math.Max(0, Math.Min(value, maximumScrollOffset)); }
             }
-            public int ContentLength
+            public int MaximumScrollOffset
             {
-                get { return contentLength; }
-                set { if (contentLength == value) return; contentLength = Math.Max(0, value); UpdateScrollRange(); }
+                get { return maximumScrollOffset; }
+                set
+                {
+                    int bounded = Math.Max(0, value);
+                    if (maximumScrollOffset == bounded) return;
+                    maximumScrollOffset = bounded;
+                    UpdateScrollRange();
+                }
             }
 
             protected override void OnSizeChanged(EventArgs e)
@@ -278,16 +285,16 @@ namespace ControllerCounter
             private void UpdateScrollRange()
             {
                 var bar = ActiveBar;
-                int offset = Math.Min(bar.Value, Math.Max(0, contentLength - ViewportLength));
+                int offset = Math.Min(bar.Value, maximumScrollOffset);
                 // Set only changed properties to avoid repeated scrollbar/layout updates on resize.
-                int maximum = Math.Max(0, contentLength - 1);
+                int maximum = maximumScrollOffset + Math.Max(1, ViewportLength) - 1;
                 if (bar.Maximum != maximum) bar.Maximum = maximum;
                 int page = Math.Max(1, ViewportLength);
                 if (bar.LargeChange != page) bar.LargeChange = page;
                 if (bar.SmallChange != 20) bar.SmallChange = 20;
                 if (bar.Value != offset) bar.Value = offset;
-                verticalBar.Visible = !horizontalTimeline && contentLength > ViewportLength;
-                horizontalBar.Visible = horizontalTimeline && contentLength > ViewportLength;
+                verticalBar.Visible = !horizontalTimeline && maximumScrollOffset > 0;
+                horizontalBar.Visible = horizontalTimeline && maximumScrollOffset > 0;
                 Invalidate();
             }
 
@@ -359,7 +366,9 @@ namespace ControllerCounter
                 e.Graphics.SetClip(verticalBars ? new Rectangle(area.Left, area.Top, area.Width, area.Height + 28) :
                     new Rectangle(0, area.Top, area.Right + 1, area.Height), CombineMode.Intersect);
                 int labelStep = Math.Max(1, (int)Math.Ceiling((verticalBars ? 110 : Font.Height + 6) / spacing));
-                int firstLabel = Math.Max(0, (int)(scroll / spacing) / labelStep * labelStep);
+                // Anchor labels to the first visible row so the final row still has
+                // a timestamp when it is alone at the top of the trailing space.
+                int firstLabel = Math.Max(0, (int)Math.Ceiling(scroll / spacing - 0.5));
                 for (int bucket = firstLabel; ; bucket += labelStep)
                 {
                     float position = (float)((bucket + 0.5) * spacing - scroll);
@@ -367,7 +376,7 @@ namespace ControllerCounter
                     DateTimeOffset time = chartFrom.AddTicks(bucket * chartUnit.Ticks);
                     if (time >= chartTo) break;
                     e.Graphics.DrawString(time.ToLocalTime().ToString("MM/dd HH:mm"), Font, Brushes.Gray,
-                        verticalBars ? area.Left + position : 8, verticalBars ? area.Bottom + 4 : area.Top + position - Font.Height / 2f);
+                        verticalBars ? area.Left + position : 8, verticalBars ? area.Bottom + 4 : Math.Max(area.Top, area.Top + position - Font.Height / 2f));
                 }
                 e.Graphics.SetClip(area, CombineMode.Intersect);
                 int first, end;

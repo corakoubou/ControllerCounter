@@ -59,8 +59,19 @@ namespace ControllerCounter
                         form.historyChart.HorizontalTimeline = false;
                         form.LayoutHistoryChart(false);
                         form.historyChart.ScrollOffset = int.MaxValue;
-                        Check(form.historyChart.ScrollOffset == Math.Max(0, form.historyChart.ContentLength - form.historyChart.ClientSize.Height),
+                        Check(form.historyChart.ScrollOffset == form.historyChart.MaximumScrollOffset,
                             "Scroll offset is clamped after spacing changes");
+                        double latestRowCenter = (form.chartData.Buckets[form.chartData.Count - 1] + 0.5) * spacing - form.historyChart.ScrollOffset;
+                        Check(Math.Abs(latestRowCenter - spacing / 2.0) < 1,
+                            "The latest time row can reach the topmost row");
+                        int finalOffset = form.historyChart.ScrollOffset;
+                        form.historyChart.ScrollOffset = int.MaxValue;
+                        Check(form.historyChart.ScrollOffset == finalOffset,
+                            "Scrolling stops at the final row instead of continuing infinitely");
+                        form.ClientSize = new Size(620, 340);
+                        Check(form.historyChart.MaximumScrollOffset == finalOffset && form.historyChart.ScrollOffset == finalOffset,
+                            "Resizing preserves the last-row scroll position");
+                        form.ClientSize = new Size(480, 280);
                         foreach (int offset in new[] { 0, 37, form.historyChart.ScrollOffset })
                         {
                             form.historyChart.ScrollOffset = offset;
@@ -114,10 +125,15 @@ namespace ControllerCounter
                     form.OnResizeEnd(EventArgs.Empty); // Safe if a duplicate completion event arrives.
                     form.LayoutHistoryChart(true);
                     Check(form.historyChart.ScrollOffset == 0, "Range reset returns to oldest time");
+                    form.chartRecords.RemoveRange(1, form.chartRecords.Count - 1);
+                    form.chartData = new HistoryChartData(form.chartRecords, form.chartUnit);
+                    form.LayoutHistoryChart(false);
+                    Check(form.historyChart.MaximumScrollOffset == 0 && form.historyChart.ScrollOffset == 0,
+                        "One time row needs no trailing scroll beyond itself");
                     form.chartRecords.Clear();
                     form.chartData = new HistoryChartData(form.chartRecords, form.chartUnit);
                     form.LayoutHistoryChart(false);
-                    Check(form.historyChart.ContentLength == 0 && form.historyChart.ScrollOffset == 0, "Empty data clears scroll range");
+                    Check(form.historyChart.MaximumScrollOffset == 0 && form.historyChart.ScrollOffset == 0, "Empty data clears scroll range");
                     form.Close();
                 }
                 Console.WriteLine("PASS: " + checks + " Windows chart rendering checks");
