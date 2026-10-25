@@ -225,12 +225,16 @@ namespace ControllerCounter
                 var rangeStart = (now - spans[historyRange.SelectedIndex]).LocalDateTime;
                 chartFrom = new DateTimeOffset(new DateTime(rangeStart.Ticks / chartUnit.Ticks * chartUnit.Ticks, DateTimeKind.Local));
                 chartRecords = HistoryStore.Aggregate(records, chartUnit);
-                if (chartRecords.Count > 0)
+                // Use the full recorded time span, including intervals belonging to
+                // other artwork, so a filtered zero interval also appears in the chart.
+                var graphRecords = allRecords.Count == 0 ? new List<HistoryRecord>() :
+                    HistoryStore.FillChartGaps(chartRecords, chartUnit, allRecords[0].Time, allRecords[allRecords.Count - 1].Time);
+                if (graphRecords.Count > 0)
                 {
-                    chartFrom = chartRecords[0].Time;
-                    chartTo = chartRecords[chartRecords.Count - 1].Time.Add(chartUnit);
+                    chartFrom = graphRecords[0].Time;
+                    chartTo = graphRecords[graphRecords.Count - 1].Time.Add(chartUnit);
                 }
-                chartData = new HistoryChartData(chartRecords, chartUnit);
+                chartData = new HistoryChartData(graphRecords, chartUnit);
                 historyGrid.RowCount = chartRecords.Count;
                 historyGrid.Invalidate();
                 var totals = Enumerable.Range(0, 6).Select(i => records.Sum(r => r.Values[i])).ToArray();
@@ -419,7 +423,6 @@ namespace ControllerCounter
                 int first, end;
                 chartData.VisibleRange(scroll / spacing - 1, (scroll + timeLength) / spacing + 1, out first, out end);
                 PointF? previous = null;
-                int previousRow = -1;
                 for (int row = first; row < end; row++)
                 {
                     double value = chartData.Value(row, metric, cumulative);
@@ -437,12 +440,11 @@ namespace ControllerCounter
                     }
                     else
                     {
-                        if (previous.HasValue && chartData.Times[row] - chartData.Times[previousRow] == chartUnit)
+                        if (previous.HasValue)
                             e.Graphics.DrawLine(linePen, previous.Value, point);
                         e.Graphics.FillEllipse(Brushes.SteelBlue, point.X - 2, point.Y - 2, 4, 4);
                     }
                     previous = point;
-                    previousRow = row;
                 }
                 e.Graphics.Restore(clip);
             }

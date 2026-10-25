@@ -193,6 +193,25 @@ namespace ControllerCounter
             return result.OrderBy(r => r.Time).ToList();
         }
 
+        // Fill chart-only buckets; the history table and persisted records stay sparse.
+        public static List<HistoryRecord> FillChartGaps(IList<HistoryRecord> aggregated, TimeSpan unit,
+            DateTimeOffset from, DateTimeOffset to)
+        {
+            if (unit.Ticks <= 0) throw new ArgumentOutOfRangeException("unit");
+            long first = from.LocalDateTime.Ticks / unit.Ticks * unit.Ticks;
+            long last = to.LocalDateTime.Ticks / unit.Ticks * unit.Ticks;
+            var byTime = aggregated.ToDictionary(r => r.Time.LocalDateTime.Ticks);
+            var filled = new List<HistoryRecord>();
+            for (long time = first; time <= last; time += unit.Ticks)
+            {
+                HistoryRecord record;
+                if (!byTime.TryGetValue(time, out record))
+                    record = new HistoryRecord { Time = new DateTimeOffset(new DateTime(time, DateTimeKind.Local)) };
+                filled.Add(record);
+            }
+            return filled;
+        }
+
         public static List<HistoryRecord> Aggregate(IEnumerable<HistoryRecord> records, TimeSpan unit)
         {
             if (unit.Ticks <= 0) throw new ArgumentOutOfRangeException("unit");

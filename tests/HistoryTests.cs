@@ -263,6 +263,26 @@ internal static class HistoryTests
             restored = ViewPreferences.Load(preferencesPath, out preferencesWarning);
             Check(restored.ApplicationFilter == preferences.ApplicationFilter && restored.ArtworkFilter == preferences.ArtworkFilter,
                 "App and artwork filters survive restart without losing Unicode or quotes");
+            var gapStart = new DateTimeOffset(new DateTime(2026, 10, 25, 12, 0, 0, DateTimeKind.Local));
+            var sparseChartRows = new[]
+            {
+                new HistoryRecord { Time = gapStart.AddMinutes(1), Values = new double[] { 2, 0, 0, 0, 0, 0 } },
+                new HistoryRecord { Time = gapStart.AddMinutes(4), Values = new double[] { 3, 0, 0, 0, 0, 0 } }
+            };
+            var filledRows = HistoryStore.FillChartGaps(sparseChartRows, TimeSpan.FromMinutes(1), gapStart, gapStart.AddMinutes(6));
+            var filledChart = new HistoryChartData(filledRows, TimeSpan.FromMinutes(1));
+            Check(filledRows.Count == 7 && filledRows[0].Values[0] == 0 && filledRows[2].Values[0] == 0 && filledRows[6].Values[0] == 0,
+                "Charts fill leading, middle and trailing zero buckets");
+            Check(filledRows.Select(r => r.Values[0]).SequenceEqual(new double[] { 0, 2, 0, 0, 3, 0, 0 }),
+                "Interval plots include zero-valued points without interpolating activity");
+            Check(Enumerable.Range(0, filledChart.Count).Select(i => filledChart.Value(i, 0, true))
+                .SequenceEqual(new double[] { 0, 2, 2, 2, 5, 5, 5 }),
+                "Cumulative plots carry the last total through every zero interval");
+            Check(sparseChartRows.Length == 2 && filledChart.Maximum(0, true) == 5,
+                "Chart filling preserves sparse table rows and period totals");
+            var noMatches = HistoryStore.FillChartGaps(new HistoryRecord[0], TimeSpan.FromMinutes(1), gapStart, gapStart.AddMinutes(2));
+            Check(noMatches.Count == 3 && noMatches.All(r => r.Values.All(v => v == 0)),
+                "An unmatched artwork filter can show zero points across the recorded period");
             Console.WriteLine("Paint candidates for a 60-minute viewport: 63 / 43,200 records");
             Console.WriteLine("PASS: " + checks + " history checks");
         }
