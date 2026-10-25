@@ -152,6 +152,12 @@ namespace ControllerCounter
 
         private void RefreshHistory(bool resetScroll = true)
         {
+            if (isInteractiveResize)
+            {
+                historyRefreshPending = true;
+                historyResetScrollPending |= resetScroll;
+                return;
+            }
             if (historyGrid == null) return;
             try
             {
@@ -270,6 +276,7 @@ namespace ControllerCounter
 
         private void PaintHistoryChart(object sender, PaintEventArgs e)
         {
+            if (isInteractiveResize) return;
             int metric = historyMetric.SelectedIndex;
             bool cumulative = historyValueMode.SelectedIndex == 1;
             bool verticalBars = historyChartType.SelectedIndex == 2;

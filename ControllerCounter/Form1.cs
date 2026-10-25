@@ -117,6 +117,7 @@ namespace ControllerCounter
 
         private void UpdateDisplay()
         {
+            if (isInteractiveResize) return;
             lblStatus.Text =
                 $"キー入力数：{keyCount:N0}\n" +
                 $"左クリック：{leftClickCount:N0}\n" +

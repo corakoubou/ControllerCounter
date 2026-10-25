@@ -10,6 +10,7 @@ namespace ControllerCounter
         private int keyCount = 0, leftClickCount = 0, rightClickCount = 0, wheelCount = 0;
         private double mouseMoveDistance = 0, dragDistance = 0;
         private static int checks;
+        private void UpdateDisplay() { } // The harness has no live counter label.
 
         private static void Check(bool condition, string message)
         {
@@ -82,6 +83,21 @@ namespace ControllerCounter
                             }
                         }
                     }
+                    form.OnResizeBegin(EventArgs.Empty);
+                    Check(form.isInteractiveResize, "Resize begins with painting suspended");
+                    Check(form.resizeRedrawHandle == form.Handle, "Redraw suspension tracks the current HWND");
+                    form.ClientSize = new Size(620, 340);
+                    using (var frame = new Bitmap(620, 340))
+                    using (var graphics = Graphics.FromImage(frame))
+                    {
+                        graphics.Clear(Color.Magenta);
+                        form.PaintHistoryChart(form.historyChart, new PaintEventArgs(graphics, new Rectangle(0, 0, 620, 340)));
+                        Check(frame.GetPixel(8, 8).ToArgb() == Color.Magenta.ToArgb(), "Chart skips painting during resize");
+                    }
+                    form.OnResizeEnd(EventArgs.Empty);
+                    Check(!form.isInteractiveResize && form.resizeRedrawHandle == IntPtr.Zero, "Resize end restores drawing");
+                    Check(form.historyChart.ClientSize.Width == form.ClientSize.Width, "Deferred docking completes at resize end");
+                    form.OnResizeEnd(EventArgs.Empty); // Safe if a duplicate completion event arrives.
                     form.LayoutHistoryChart(true);
                     Check(form.historyChart.ScrollOffset == 0, "Range reset returns to oldest time");
                     form.chartRecords.Clear();

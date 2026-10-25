@@ -10,6 +10,7 @@
     <Reference Include="System.Drawing" /><Reference Include="System.Windows.Forms" />
     <Compile Include="..\ControllerCounter\History.cs" Link="History.cs" />
     <Compile Include="..\ControllerCounter\Form1.History.cs" Link="Form1.History.cs" />
+    <Compile Include="..\ControllerCounter\Form1.Resize.cs" Link="Form1.Resize.cs" />
     <Compile Include="ChartRenderingTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

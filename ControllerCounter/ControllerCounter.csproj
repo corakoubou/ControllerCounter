@@ -52,6 +52,7 @@
   <ItemGroup>
     <Compile Include="History.cs" />
     <Compile Include="Form1.History.cs" />
+    <Compile Include="Form1.Resize.cs" />
     <Compile Include="Form1.cs">
       <SubType>Form</SubType>
     </Compile>
