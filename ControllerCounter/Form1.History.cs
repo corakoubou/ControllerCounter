@@ -324,7 +324,7 @@ namespace ControllerCounter
                 float previousLabel = float.NegativeInfinity;
                 foreach (double tick in axis.Ticks)
                 {
-                    string label = tick.ToString("0.########");
+                    string label = tick.ToString(automaticValueAxis.Checked ? "0.#" : "0.########");
                     float position = (float)(tick / max * (verticalBars ? area.Height : area.Width));
                     if (verticalBars)
                     {
