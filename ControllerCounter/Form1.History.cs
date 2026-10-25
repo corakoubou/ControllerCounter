@@ -52,18 +52,17 @@ namespace ControllerCounter
             foreach (string title in new[] { "期間開始", "キー", "左クリック", "右クリック", "ホイール", "移動(m)", "ドラッグ(m)", "総距離(m)" })
                 historyGrid.Columns.Add(title, title);
             historyGrid.Columns[0].FillWeight = 180;
-            historyChart = new HistoryChartPanel { Dock = DockStyle.Fill, BackColor = Color.White, AutoScroll = true };
+            historyChart = new HistoryChartPanel { Dock = DockStyle.Fill, BackColor = Color.White };
             historyChart.Paint += PaintHistoryChart;
-            historyChart.Scroll += (s, e) => historyChart.Invalidate();
             historyChart.ClientSizeChanged += (s, e) => historyChart.Invalidate();
             decimal previousSpacing = chartSpacing.Value;
             chartSpacing.ValueChanged += (s, e) =>
             {
                 // Preserve the topmost time position when changing the distance between buckets.
-                int offset = (int)(-historyChart.AutoScrollPosition.Y / previousSpacing * chartSpacing.Value);
+                int offset = (int)(historyChart.ScrollOffset / previousSpacing * chartSpacing.Value);
                 previousSpacing = chartSpacing.Value;
                 LayoutHistoryChart(false);
-                historyChart.AutoScrollPosition = new Point(0, offset);
+                historyChart.ScrollOffset = offset;
                 historyChart.Invalidate();
             };
             historyMetric = HistoryChoice(MetricNames, 0);
@@ -177,14 +176,65 @@ namespace ControllerCounter
             if (historyChart == null || chartUnit.Ticks <= 0) return;
             int height = chartRecords.Count == 0 ? 0 :
                 (int)Math.Ceiling(HistoryTimeline.GetOffset(chartTo, chartFrom, chartUnit, (double)chartSpacing.Value)) + 75;
-            historyChart.AutoScrollMinSize = new Size(0, height);
-            if (resetScroll) historyChart.AutoScrollPosition = Point.Empty;
+            historyChart.ContentHeight = height;
+            if (resetScroll) historyChart.ScrollOffset = 0;
             historyChart.Invalidate();
         }
 
         private sealed class HistoryChartPanel : Panel
         {
-            public HistoryChartPanel() { DoubleBuffered = true; ResizeRedraw = true; }
+            private readonly VScrollBar scrollBar;
+            private int contentHeight;
+
+            public HistoryChartPanel()
+            {
+                SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                    ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+                // AutoScroll moves existing pixels, including our fixed title and axes.
+                // Use an explicit scrollbar so every scroll redraws from data instead.
+                AutoScroll = false;
+                scrollBar = new VScrollBar { Dock = DockStyle.Right, Visible = false };
+                scrollBar.ValueChanged += (s, e) => Invalidate();
+                Controls.Add(scrollBar);
+            }
+
+            public int PlotClientWidth { get { return ClientSize.Width - (scrollBar.Visible ? scrollBar.Width : 0); } }
+            public int ScrollOffset
+            {
+                get { return scrollBar.Value; }
+                set { scrollBar.Value = Math.Max(0, Math.Min(value, Math.Max(0, contentHeight - ClientSize.Height))); }
+            }
+            public int ContentHeight
+            {
+                get { return contentHeight; }
+                set { contentHeight = Math.Max(0, value); UpdateScrollRange(); }
+            }
+
+            protected override void OnSizeChanged(EventArgs e)
+            {
+                base.OnSizeChanged(e);
+                if (scrollBar != null) UpdateScrollRange();
+            }
+
+            private void UpdateScrollRange()
+            {
+                int offset = Math.Min(ScrollOffset, Math.Max(0, contentHeight - ClientSize.Height));
+                scrollBar.Minimum = 0;
+                scrollBar.Maximum = Math.Max(0, contentHeight - 1);
+                scrollBar.LargeChange = Math.Max(1, ClientSize.Height);
+                scrollBar.SmallChange = 20;
+                scrollBar.Value = offset;
+                scrollBar.Visible = contentHeight > ClientSize.Height;
+                Invalidate();
+            }
+
+            protected override void OnMouseWheel(MouseEventArgs e)
+            {
+                base.OnMouseWheel(e);
+                int lines = SystemInformation.MouseWheelScrollLines;
+                int step = lines < 0 ? Math.Max(1, ClientSize.Height) : Math.Max(1, lines) * scrollBar.SmallChange;
+                ScrollOffset -= e.Delta / SystemInformation.MouseWheelScrollDelta * step;
+            }
         }
 
         private void PaintHistoryChart(object sender, PaintEventArgs e)
@@ -199,9 +249,9 @@ namespace ControllerCounter
             }
             Func<HistoryRecord, double> value = r => metric == 6 ? r.TotalMeters : metric >= 4 ? r.Values[metric] / 96 * 0.0254 : r.Values[metric];
             double max = Math.Max(1, chartRecords.Max(value));
-            var area = new Rectangle(115, 32, Math.Max(1, historyChart.ClientSize.Width - 145), Math.Max(10, historyChart.ClientSize.Height - 62));
+            var area = new Rectangle(115, 32, Math.Max(1, historyChart.PlotClientWidth - 145), Math.Max(10, historyChart.ClientSize.Height - 62));
             double spacing = (double)chartSpacing.Value;
-            int scroll = -historyChart.AutoScrollPosition.Y;
+            int scroll = historyChart.ScrollOffset;
             using (var gridPen = new Pen(Color.LightGray))
             using (var linePen = new Pen(Color.SteelBlue, 2))
             {
@@ -214,7 +264,9 @@ namespace ControllerCounter
                     e.Graphics.DrawString(label, Font, Brushes.Gray, x - e.Graphics.MeasureString(label, Font).Width / 2, area.Bottom + 4);
                 }
                 var clip = e.Graphics.Save();
-                e.Graphics.SetClip(new Rectangle(0, area.Top, area.Right + 1, area.Height));
+                // Preserve the dirty-region clip supplied by WinForms. Replacing it can
+                // copy unpainted pixels from the partial double buffer into other areas.
+                e.Graphics.SetClip(new Rectangle(0, area.Top, area.Right + 1, area.Height), CombineMode.Intersect);
                 int labelStep = Math.Max(1, (int)Math.Ceiling((Font.Height + 6) / spacing));
                 int firstLabel = Math.Max(0, (int)(scroll / spacing) / labelStep * labelStep);
                 for (int bucket = firstLabel; ; bucket += labelStep)
@@ -225,7 +277,7 @@ namespace ControllerCounter
                     if (time >= chartTo) break;
                     e.Graphics.DrawString(time.ToLocalTime().ToString("MM/dd HH:mm"), Font, Brushes.Gray, 8, y - Font.Height / 2f);
                 }
-                e.Graphics.SetClip(area);
+                e.Graphics.SetClip(area, CombineMode.Intersect);
                 PointF? previous = null;
                 HistoryRecord previousRecord = null;
                 foreach (var record in chartRecords)

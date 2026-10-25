@@ -1,0 +1,16 @@
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><AssemblyName>ChartRenderingTests</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <OutputPath>bin\ChartRendering\</OutputPath><IntermediateOutputPath>obj\ChartRendering\</IntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" /><Reference Include="System.Core" />
+    <Reference Include="System.Drawing" /><Reference Include="System.Windows.Forms" />
+    <Compile Include="..\ControllerCounter\History.cs" Link="History.cs" />
+    <Compile Include="..\ControllerCounter\Form1.History.cs" Link="Form1.History.cs" />
+    <Compile Include="ChartRenderingTests.cs" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
