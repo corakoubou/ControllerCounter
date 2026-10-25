@@ -76,7 +76,10 @@ namespace ControllerCounter
             };
             historyMetric = HistoryChoice(MetricNames, 0);
             historyChartType = HistoryChoice(new[] { "折れ線グラフ", "横棒グラフ", "縦棒グラフ" }, 1);
-            historyMetric.SelectedIndexChanged += (s, e) => historyChart.Invalidate();
+            automaticValueAxis = new CheckBox { Text = "数値目盛り: 自動", Checked = true, AutoSize = true };
+            valueAxisStep = new NumericUpDown { DecimalPlaces = 3, Minimum = 0.001m, Maximum = 1000000000m,
+                Value = 1, Increment = 1, Width = 110, Enabled = false };
+            historyMetric.SelectedIndexChanged += (s, e) => { ApplyMetricAxisPreferences(); historyChart.Invalidate(); };
             historyChartType.SelectedIndexChanged += (s, e) =>
             {
                 historyChart.HorizontalTimeline = historyChartType.SelectedIndex == 2;
@@ -86,6 +89,9 @@ namespace ControllerCounter
             historyValueMode.SelectedIndexChanged += (s, e) => historyChart.Invalidate();
             var graphOptions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true,
                 FlowDirection = FlowDirection.RightToLeft, WrapContents = true };
+            graphOptions.Controls.Add(valueAxisStep);
+            graphOptions.Controls.Add(new Label { Text = "数値の刻み", AutoSize = true });
+            graphOptions.Controls.Add(automaticValueAxis);
             graphOptions.Controls.Add(historyValueMode);
             graphOptions.Controls.Add(historyChartType);
             graphOptions.Controls.Add(historyMetric);
@@ -101,6 +107,7 @@ namespace ControllerCounter
                 {
                     historyGrid.Columns[metric + 1].Visible = check.Checked;
                 };
+                columnChecks.Add(check);
                 visibility.Controls.Add(check);
             }
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
@@ -112,8 +119,11 @@ namespace ControllerCounter
             page.Controls.Add(visibility);
             page.Controls.Add(filters);
             page.Controls.Add(historyStatus);
+            preferencesStatus = new Label { Dock = DockStyle.Bottom, Height = 22, AutoEllipsis = true, Visible = false, ForeColor = Color.Firebrick };
+            page.Controls.Add(preferencesStatus);
             historyRange.SelectedIndexChanged += (s, e) => RefreshHistory();
             historyUnit.SelectedIndexChanged += (s, e) => RefreshHistory();
+            InitializeViewPreferences();
             LayoutHistoryChart(true);
             recordedCounters = CurrentCounters();
             recordTimer = new Timer { Interval = 30000 };
@@ -152,6 +162,7 @@ namespace ControllerCounter
 
         private void RefreshHistory(bool resetScroll = true)
         {
+            if (applyingPreferences) return;
             if (isInteractiveResize)
             {
                 historyRefreshPending = true;
@@ -292,34 +303,49 @@ namespace ControllerCounter
             bool verticalBars = historyChartType.SelectedIndex == 2;
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             string axes = verticalBars ? "横軸: 時刻・左から古い順" : "縦軸: 時刻・上から古い順";
-            e.Graphics.DrawString(MetricNames[metric] + " / " + historyValueMode.Text + " （" + axes + " / " + historyUnit.Text + "）", Font, Brushes.Black, 8, 4);
+            string heading = MetricNames[metric] + " / " + historyValueMode.Text + " （" + axes + " / " + historyUnit.Text + "）";
             if (chartData.Count == 0)
             {
+                e.Graphics.DrawString(heading, Font, Brushes.Black, 8, 4);
                 e.Graphics.DrawString("この期間の記録はありません", Font, Brushes.Gray, 20, 35);
                 return;
             }
-            double max = Math.Max(1, chartData.Maximum(metric, cumulative));
             var area = new Rectangle(115, 32, Math.Max(1, historyChart.PlotClientWidth - 145), Math.Max(10, historyChart.PlotClientHeight - 62));
+            var axis = ChartValueAxis.Create(chartData.Maximum(metric, cumulative), automaticValueAxis.Checked,
+                valueAxisStep.Value, verticalBars ? area.Height : area.Width);
+            double max = axis.Maximum;
+            e.Graphics.DrawString(heading + (axis.IsThinned ? " / 数値目盛りを間引き表示" : ""), Font, Brushes.Black, 8, 4);
             double spacing = (double)chartSpacing.Value;
             int scroll = historyChart.ScrollOffset;
             int timeLength = verticalBars ? area.Width : area.Height;
             using (var gridPen = new Pen(Color.LightGray))
             using (var linePen = new Pen(Color.SteelBlue, 2))
             {
-                for (int i = 0; i <= 4; i++)
+                float previousLabel = float.NegativeInfinity;
+                foreach (double tick in axis.Ticks)
                 {
-                    string label = (max * i / 4).ToString("0.##");
+                    string label = tick.ToString("0.########");
+                    float position = (float)(tick / max * (verticalBars ? area.Height : area.Width));
                     if (verticalBars)
                     {
-                        float y = area.Bottom - area.Height * i / 4f;
+                        float y = area.Bottom - position;
                         e.Graphics.DrawLine(gridPen, area.Left, y, area.Right, y);
-                        e.Graphics.DrawString(label, Font, Brushes.Gray, 8, y - Font.Height / 2f);
+                        if (position - previousLabel >= Font.Height + 4)
+                        {
+                            e.Graphics.DrawString(label, Font, Brushes.Gray, 8, y - Font.Height / 2f);
+                            previousLabel = position;
+                        }
                     }
                     else
                     {
-                        float x = area.Left + area.Width * i / 4f;
+                        float x = area.Left + position;
                         e.Graphics.DrawLine(gridPen, x, area.Top, x, area.Bottom);
-                        e.Graphics.DrawString(label, Font, Brushes.Gray, x - e.Graphics.MeasureString(label, Font).Width / 2, area.Bottom + 4);
+                        float labelWidth = e.Graphics.MeasureString(label, Font).Width;
+                        if (position - labelWidth / 2 >= previousLabel + 4)
+                        {
+                            e.Graphics.DrawString(label, Font, Brushes.Gray, x - labelWidth / 2, area.Bottom + 4);
+                            previousLabel = position + labelWidth / 2;
+                        }
                     }
                 }
                 var clip = e.Graphics.Save();

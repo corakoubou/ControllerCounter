@@ -112,6 +112,53 @@ internal static class HistoryTests
                 Check(series.Value(1, 0, true) == 12 && series.Buckets[1] == 1,
                     "Cumulative totals and chart spacing work for " + unit);
             }
+            var manualAxis = ChartValueAxis.Create(2.34, false, 1m, 500);
+            Check(manualAxis.Maximum == 3 && manualAxis.Ticks.SequenceEqual(new double[] { 0, 1, 2, 3 }),
+                "Manual value axis draws the requested one-meter increments");
+            var fractionalAxis = ChartValueAxis.Create(2.34, false, 0.5m, 500);
+            Check(fractionalAxis.Maximum == 2.5 && fractionalAxis.Ticks.Count == 6 && fractionalAxis.Ticks[1] == 0.5,
+                "Manual value axis supports fractional meter increments");
+            Check(Math.Abs(ChartValueAxis.Create(0.07, false, 0.01m, 500).Maximum - 0.07) < 0.000001,
+                "Decimal tick boundaries do not gain an extra interval");
+            var automaticAxis = ChartValueAxis.Create(2.34, true, 1m, 500);
+            Check(automaticAxis.Maximum == 2.34 && automaticAxis.Ticks.Count == 5,
+                "Automatic value axis retains the existing scale");
+            var denseAxis = ChartValueAxis.Create(1000000000, false, 0.001m, 400);
+            Check(denseAxis.IsThinned && denseAxis.Ticks.Count <= 102 && denseAxis.Maximum >= 1000000000,
+                "Tiny requested intervals never create an unbounded paint loop");
+            Check(ChartValueAxis.Create(0, false, 0.5m, 400).Maximum == 0.5,
+                "A zero-data manual axis has a nonzero extent");
+            string preferencesPath = Path.Combine(directory, "view-settings.xml");
+            string preferencesWarning;
+            var preferences = ViewPreferences.Load(preferencesPath, out preferencesWarning);
+            Check(preferencesWarning == null && preferences.TimeSpacing == 40 && preferences.VisibleColumns.All(v => v),
+                "Missing settings use defaults");
+            preferences.Range = "過去7日"; preferences.Unit = "15分"; preferences.Metric = "ドラッグ (m)";
+            preferences.ChartType = "縦棒グラフ"; preferences.ValueMode = "期間内の累計";
+            preferences.TimeSpacing = 12;
+            preferences.VisibleColumns[0] = false;
+            preferences.AutomaticAxis[5] = false;
+            preferences.AxisSteps[5] = 0.5m;
+            preferences.AxisSteps[0] = 100;
+            preferences.Save(preferencesPath);
+            var restored = ViewPreferences.Load(preferencesPath, out preferencesWarning);
+            Check(preferencesWarning == null && restored.Range == preferences.Range && restored.Unit == preferences.Unit &&
+                restored.Metric == preferences.Metric && restored.ChartType == preferences.ChartType && restored.ValueMode == preferences.ValueMode,
+                "All selected graph options survive restart");
+            Check(restored.TimeSpacing == 12 && !restored.VisibleColumns[0] && restored.VisibleColumns[1] &&
+                !restored.AutomaticAxis[5] && restored.AxisSteps[5] == 0.5m && restored.AxisSteps[0] == 100,
+                "Visibility, spacing and independent metric steps survive restart across cultures");
+            restored.TimeSpacing = 20;
+            restored.Save(preferencesPath);
+            Check(ViewPreferences.Load(preferencesPath, out preferencesWarning).TimeSpacing == 20 && Directory.GetFiles(directory, "*.tmp").Length == 0,
+                "Updating preferences replaces the file without leftover temporary data");
+            restored.TimeSpacing = -1; restored.AxisSteps = new decimal[] { -1 }; restored.VisibleColumns = new bool[] { false };
+            restored.Normalize();
+            Check(restored.TimeSpacing == 4 && restored.AxisSteps[0] == 1 && restored.AxisSteps.Length == 7 &&
+                !restored.VisibleColumns[0] && restored.VisibleColumns[1], "Invalid or incomplete saved arrays are normalized");
+            File.WriteAllText(preferencesPath, "<ViewPreferences><TimeSpacing>broken</TimeSpacing></ViewPreferences>");
+            restored = ViewPreferences.Load(preferencesPath, out preferencesWarning);
+            Check(preferencesWarning != null && restored.TimeSpacing == 40, "Corrupt settings fall back to defaults with a warning");
             Console.WriteLine("Paint candidates for a 60-minute viewport: 63 / 43,200 records");
             Console.WriteLine("PASS: " + checks + " history checks");
         }

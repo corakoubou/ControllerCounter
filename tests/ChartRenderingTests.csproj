@@ -6,11 +6,13 @@
     <OutputPath>bin\ChartRendering\</OutputPath><IntermediateOutputPath>obj\ChartRendering\</IntermediateOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="System" /><Reference Include="System.Core" />
+    <Reference Include="System.Xml" /><Reference Include="System" /><Reference Include="System.Core" />
     <Reference Include="System.Drawing" /><Reference Include="System.Windows.Forms" />
     <Compile Include="..\ControllerCounter\History.cs" Link="History.cs" />
     <Compile Include="..\ControllerCounter\Form1.History.cs" Link="Form1.History.cs" />
     <Compile Include="..\ControllerCounter\Form1.Resize.cs" Link="Form1.Resize.cs" />
+    <Compile Include="..\ControllerCounter\ViewPreferences.cs" Link="ViewPreferences.cs" />
+    <Compile Include="..\ControllerCounter\Form1.Preferences.cs" Link="Form1.Preferences.cs" />
     <Compile Include="ChartRenderingTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
