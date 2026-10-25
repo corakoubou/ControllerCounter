@@ -15,6 +15,18 @@ namespace ControllerCounter
         public double TotalMeters { get { return Values[0] + Values[1] + Values[2] + Values[3] * 0.5 + (Values[4] + Values[5]) / 96 * 0.0254; } }
     }
 
+    internal static class HistoryTimeline
+    {
+        // Pixel spacing is per aggregation bucket, including missing buckets.
+        public static double GetX(DateTimeOffset time, DateTimeOffset start, TimeSpan unit, double spacing)
+        {
+            if (unit.Ticks <= 0) throw new ArgumentOutOfRangeException("unit");
+            if (spacing <= 0 || double.IsInfinity(spacing) || double.IsNaN(spacing))
+                throw new ArgumentOutOfRangeException("spacing");
+            return (time - start).Ticks / (double)unit.Ticks * spacing;
+        }
+    }
+
     internal sealed class HistoryStore
     {
         private readonly string directory;
