@@ -51,6 +51,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="History.cs" />
+    <Compile Include="WindowActivity.cs" />
+    <Compile Include="WindowContextResolver.cs" />
     <Compile Include="ViewPreferences.cs" />
     <Compile Include="Form1.Preferences.cs" />
     <Compile Include="Form1.History.cs" />

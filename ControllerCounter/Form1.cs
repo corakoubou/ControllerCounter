@@ -10,6 +10,7 @@ namespace ControllerCounter
 {
     public partial class Form1 : Form
     {
+        private readonly WindowContextResolver windowContext = new WindowContextResolver();
         private const int WM_KEYUP = 0x0101;
         private const int WM_SYSKEYUP = 0x0105;
 
@@ -241,7 +242,6 @@ namespace ControllerCounter
             wheelCount = importedWheel;
             mouseMoveDistance = importedMove;
             dragDistance = importedDrag;
-            recordedCounters = CurrentCounters();
         }
 
         private string Csv(string value)
@@ -330,6 +330,7 @@ namespace ControllerCounter
                     {
                         pressedKeys.Add(keyCode);
                         keyCount++;
+                        windowActivity.Add(windowContext.Foreground(), 0, 1);
                     }
                 }
                 else if (message == WM_KEYUP || message == WM_SYSKEYUP)
@@ -366,6 +367,9 @@ namespace ControllerCounter
                     Marshal.PtrToStructure<MSLLHOOKSTRUCT>(lParam);
 
                 Point currentPoint = new Point(hookStruct.pt.x, hookStruct.pt.y);
+                int message = wParam.ToInt32();
+                var owner = isLeftDragging && message == WM_MOUSEMOVE ? WindowIdentity.Unknown :
+                    windowContext.AtPoint(currentPoint.X, currentPoint.Y, message != WM_MOUSEMOVE);
 
                 if (previousMousePoint.HasValue)
                 {
@@ -373,6 +377,7 @@ namespace ControllerCounter
 
                     if (distance > 0)
                     {
+                        windowActivity.AddMovement(owner, distance, isLeftDragging);
                         if (isLeftDragging)
                         {
                             dragDistance += distance;
@@ -386,25 +391,28 @@ namespace ControllerCounter
 
                 previousMousePoint = currentPoint;
 
-                int message = wParam.ToInt32();
-
                 switch (message)
                 {
                     case WM_LBUTTONDOWN:
                         leftClickCount++;
+                        windowActivity.Add(owner, 1, 1);
+                        windowActivity.BeginDrag(owner);
                         isLeftDragging = true;
                         break;
 
                     case WM_LBUTTONUP:
+                        windowActivity.EndDrag();
                         isLeftDragging = false;
                         break;
 
                     case WM_RBUTTONDOWN:
                         rightClickCount++;
+                        windowActivity.Add(owner, 2, 1);
                         break;
 
                     case WM_MOUSEWHEEL:
                         wheelCount++;
+                        windowActivity.Add(owner, 3, 1);
                         break;
                 }
             }
@@ -430,6 +438,7 @@ namespace ControllerCounter
         private const int WM_KEYDOWN = 0x0100;
         private const int WM_SYSKEYDOWN = 0x0104;
 
+        private const int WM_MOUSEMOVE = 0x0200;
         private const int WM_LBUTTONDOWN = 0x0201;
         private const int WM_LBUTTONUP = 0x0202;
         private const int WM_RBUTTONDOWN = 0x0204;

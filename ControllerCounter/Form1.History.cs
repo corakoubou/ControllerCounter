@@ -14,7 +14,10 @@ namespace ControllerCounter
         private readonly HistoryStore historyStore = new HistoryStore(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ControllerCounter", "History"));
         private Timer recordTimer;
-        private double[] recordedCounters = new double[6];
+        private readonly WindowActivity windowActivity = new WindowActivity();
+        private ComboBox applicationFilter, artworkFilter;
+        private Timer filterRefreshTimer;
+        private bool updatingFilterSuggestions;
         private ComboBox historyRange, historyUnit, historyMetric, historyChartType, historyValueMode;
         private HistoryGrid historyGrid;
         private Label historyStatus;
@@ -26,11 +29,6 @@ namespace ControllerCounter
         private List<HistoryRecord> chartRecords = new List<HistoryRecord>();
         private HistoryChartData chartData = new HistoryChartData(new HistoryRecord[0], TimeSpan.FromMinutes(1));
         private bool historyDirty = true;
-
-        private double[] CurrentCounters()
-        {
-            return new double[] { keyCount, leftClickCount, rightClickCount, wheelCount, mouseMoveDistance, dragDistance };
-        }
 
         private void SetupHistoryUi(TabPage page)
         {
@@ -47,6 +45,20 @@ namespace ControllerCounter
             var refresh = new Button { Text = "更新", AutoSize = true };
             refresh.Click += (s, e) => RefreshHistory();
             filters.Controls.Add(refresh);
+            applicationFilter = new ComboBox { Width = 170, DropDownStyle = ComboBoxStyle.DropDown };
+            artworkFilter = new ComboBox { Width = 300, DropDownStyle = ComboBoxStyle.DropDown };
+            filters.Controls.Add(new Label { Text = "アプリ（部分一致・空欄はすべて）", AutoSize = true });
+            filters.Controls.Add(applicationFilter);
+            filters.Controls.Add(new Label { Text = "作品名／タイトル（部分一致）", AutoSize = true });
+            filters.Controls.Add(artworkFilter);
+            var clearFilter = new Button { Text = "絞込解除", AutoSize = true };
+            clearFilter.Click += (s, e) => { applicationFilter.Text = ""; artworkFilter.Text = ""; };
+            filters.Controls.Add(clearFilter);
+            filterRefreshTimer = new Timer { Interval = 400 };
+            filterRefreshTimer.Tick += (s, e) => { filterRefreshTimer.Stop(); RefreshHistory(); };
+            applicationFilter.TextChanged += (s, e) => FilterChanged();
+            artworkFilter.TextChanged += (s, e) => FilterChanged();
+            FormClosed += (s, e) => filterRefreshTimer.Dispose();
             historyStatus = new Label { Dock = DockStyle.Bottom, Height = 58, AutoEllipsis = true };
             historyGrid = new HistoryGrid { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
                 AllowUserToDeleteRows = false, VirtualMode = true, AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false };
@@ -131,11 +143,34 @@ namespace ControllerCounter
             historyUnit.SelectedIndexChanged += (s, e) => RefreshHistory();
             InitializeViewPreferences();
             LayoutHistoryChart(true);
-            recordedCounters = CurrentCounters();
             recordTimer = new Timer { Interval = 30000 };
             recordTimer.Tick += (s, e) => SaveHistorySample();
             recordTimer.Start();
             RefreshHistory();
+        }
+
+        private void FilterChanged()
+        {
+            if (applyingPreferences || updatingFilterSuggestions) return;
+            SchedulePreferencesSave();
+            filterRefreshTimer.Stop();
+            filterRefreshTimer.Start();
+        }
+
+        private void UpdateFilterSuggestions(ComboBox box, IEnumerable<string> values)
+        {
+            updatingFilterSuggestions = true;
+            string text = box.Text;
+            int position = box.SelectionStart;
+            box.BeginUpdate();
+            try
+            {
+                box.Items.Clear();
+                box.Items.AddRange(values.Where(v => !string.IsNullOrEmpty(v)).Distinct().OrderBy(v => v).Take(500).Cast<object>().ToArray());
+                box.Text = text;
+                box.SelectionStart = Math.Min(position, text.Length);
+            }
+            finally { box.EndUpdate(); updatingFilterSuggestions = false; }
         }
 
         private static ComboBox HistoryChoice(string[] items, int selected)
@@ -148,13 +183,11 @@ namespace ControllerCounter
 
         private bool SaveHistorySample()
         {
-            var current = CurrentCounters();
-            var record = new HistoryRecord { Time = DateTimeOffset.Now,
-                Values = current.Select((v, i) => Math.Max(0, v - recordedCounters[i])).ToArray() };
+            var records = windowActivity.Snapshot(DateTimeOffset.Now);
             try
             {
-                historyStore.Append(record);
-                recordedCounters = current;
+                historyStore.AppendBatch(records);
+                windowActivity.Commit(records);
                 historyDirty = true;
                 RefreshHistory(false);
                 return true;
@@ -178,11 +211,15 @@ namespace ControllerCounter
             if (historyGrid == null) return;
             try
             {
+                filterRefreshTimer.Stop();
                 var now = DateTimeOffset.Now;
                 var spans = new[] { TimeSpan.FromMinutes(10), TimeSpan.FromHours(1), TimeSpan.FromHours(6), TimeSpan.FromDays(1), TimeSpan.FromDays(7), TimeSpan.FromDays(30) };
                 var units = new[] { TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(30), TimeSpan.FromHours(1), TimeSpan.FromHours(3), TimeSpan.FromHours(5), TimeSpan.FromHours(8), TimeSpan.FromDays(1) };
                 int invalid;
-                var records = historyStore.Read(now - spans[historyRange.SelectedIndex], now, out invalid);
+                var allRecords = historyStore.Read(now - spans[historyRange.SelectedIndex], now, out invalid);
+                UpdateFilterSuggestions(applicationFilter, allRecords.Select(r => r.Application));
+                UpdateFilterSuggestions(artworkFilter, allRecords.Select(r => r.WindowTitle));
+                var records = HistoryStore.Filter(allRecords, applicationFilter.Text, artworkFilter.Text);
                 chartUnit = units[historyUnit.SelectedIndex];
                 chartTo = now;
                 var rangeStart = (now - spans[historyRange.SelectedIndex]).LocalDateTime;
@@ -320,7 +357,7 @@ namespace ControllerCounter
             if (chartData.Count == 0)
             {
                 e.Graphics.DrawString(heading, Font, Brushes.Black, 8, 4);
-                e.Graphics.DrawString("この期間の記録はありません", Font, Brushes.Gray, 20, 35);
+                e.Graphics.DrawString("この条件の記録はありません", Font, Brushes.Gray, 20, 35);
                 return;
             }
             var area = new Rectangle(115, 32, Math.Max(1, historyChart.PlotClientWidth - 145), Math.Max(10, historyChart.PlotClientHeight - 62));

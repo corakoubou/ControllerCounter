@@ -8,8 +8,6 @@ namespace ControllerCounter
 {
     public partial class Form1 : Form
     {
-        private int keyCount = 0, leftClickCount = 0, rightClickCount = 0, wheelCount = 0;
-        private double mouseMoveDistance = 0, dragDistance = 0;
         private static int checks;
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

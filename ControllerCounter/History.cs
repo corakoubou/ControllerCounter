@@ -12,6 +12,7 @@ namespace ControllerCounter
     {
         public DateTimeOffset Time;
         public double[] Values = new double[6];
+        public string Application = "", WindowTitle = "";
         public double TotalMeters { get { return Values[0] + Values[1] + Values[2] + Values[3] * 0.5 + (Values[4] + Values[5]) / 96 * 0.0254; } }
     }
 
@@ -85,17 +86,75 @@ namespace ControllerCounter
         private readonly string directory;
         public HistoryStore(string directory) { this.directory = directory; }
 
-        public void Append(HistoryRecord record)
+        public void Append(HistoryRecord record) { AppendBatch(new[] { record }); }
+
+        public void AppendBatch(IList<HistoryRecord> records)
         {
-            Directory.CreateDirectory(directory);
-            string path = Path.Combine(directory, record.Time.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + ".csv");
-            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            if (records.Count == 0) return;
+            string date = records[0].Time.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            if (records.Any(r => r.Time.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) != date))
+                throw new ArgumentException("A batch must belong to one local date.");
+            string folder = Path.Combine(directory, "Windows");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, date + ".csv");
+            using (var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read))
             {
-                if (stream.Length == 0) writer.WriteLine("Time,Keys,LeftClicks,RightClicks,Wheel,MousePixels,DragPixels");
-                writer.WriteLine(record.Time.ToString("o", CultureInfo.InvariantCulture) + "," +
-                    string.Join(",", record.Values.Select(v => v.ToString("R", CultureInfo.InvariantCulture))));
+                long originalLength = stream.Length;
+                stream.Seek(0, SeekOrigin.End);
+                try
+                {
+                    var text = new StringBuilder();
+                    if (originalLength == 0) text.AppendLine("Time,Keys,LeftClicks,RightClicks,Wheel,MousePixels,DragPixels,Application,WindowTitle");
+                    foreach (var record in records)
+                        text.AppendLine(record.Time.ToString("o", CultureInfo.InvariantCulture) + "," +
+                            string.Join(",", record.Values.Select(v => v.ToString("R", CultureInfo.InvariantCulture))) + "," +
+                            Escape(record.Application) + "," + Escape(record.WindowTitle));
+                    byte[] bytes = new UTF8Encoding(false).GetBytes(text.ToString());
+                    stream.Write(bytes, 0, bytes.Length);
+                    stream.Flush(true);
+                }
+                catch { stream.SetLength(originalLength); throw; }
             }
+        }
+
+        private static string Escape(string text)
+        {
+            text = (text ?? "").Replace('\r', ' ').Replace('\n', ' ');
+            return "\"" + text.Replace("\"", "\"\"") + "\"";
+        }
+
+        private static string[] ParseCsv(string line)
+        {
+            var cells = new List<string>();
+            var value = new StringBuilder();
+            bool quoted = false, closed = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char ch = line[i];
+                if (quoted)
+                {
+                    if (ch == '"')
+                    {
+                        if (i + 1 < line.Length && line[i + 1] == '"') { value.Append('"'); i++; }
+                        else { quoted = false; closed = true; }
+                    }
+                    else value.Append(ch);
+                }
+                else if (ch == ',') { cells.Add(value.ToString()); value.Clear(); closed = false; }
+                else if (ch == '"' && value.Length == 0 && !closed) quoted = true;
+                else if (closed || ch == '"') return new string[0];
+                else value.Append(ch);
+            }
+            if (quoted) return new string[0];
+            cells.Add(value.ToString());
+            return cells.ToArray();
+        }
+
+        public static List<HistoryRecord> Filter(IEnumerable<HistoryRecord> records, string application, string title)
+        {
+            application = (application ?? "").Trim(); title = (title ?? "").Trim();
+            return records.Where(r => (application.Length == 0 || r.Application.IndexOf(application, StringComparison.OrdinalIgnoreCase) >= 0) &&
+                (title.Length == 0 || r.WindowTitle.IndexOf(title, StringComparison.OrdinalIgnoreCase) >= 0)).ToList();
         }
 
         public List<HistoryRecord> Read(DateTimeOffset from, DateTimeOffset to, out int invalidRows)
@@ -103,7 +162,10 @@ namespace ControllerCounter
             var result = new List<HistoryRecord>();
             invalidRows = 0;
             if (!Directory.Exists(directory)) return result;
-            foreach (string file in Directory.EnumerateFiles(directory, "*.csv"))
+            var files = Directory.EnumerateFiles(directory, "*.csv");
+            string windowsFolder = Path.Combine(directory, "Windows");
+            if (Directory.Exists(windowsFolder)) files = files.Concat(Directory.EnumerateFiles(windowsFolder, "*.csv"));
+            foreach (string file in files)
             {
                 DateTime date;
                 if (!DateTime.TryParseExact(Path.GetFileNameWithoutExtension(file), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date)) continue;
@@ -116,13 +178,14 @@ namespace ControllerCounter
                     while ((line = reader.ReadLine()) != null)
                     {
                         if (line.StartsWith("Time,")) continue;
-                        var cells = line.Split(',');
+                        var cells = ParseCsv(line);
                         var record = new HistoryRecord();
-                        bool valid = cells.Length == 7 && DateTimeOffset.TryParseExact(cells[0], "o", CultureInfo.InvariantCulture, DateTimeStyles.None, out record.Time);
+                        bool valid = (cells.Length == 7 || cells.Length == 9) && DateTimeOffset.TryParseExact(cells[0], "o", CultureInfo.InvariantCulture, DateTimeStyles.None, out record.Time);
                         for (int i = 0; valid && i < 6; i++)
                             valid = double.TryParse(cells[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out record.Values[i]) &&
                                 !double.IsNaN(record.Values[i]) && !double.IsInfinity(record.Values[i]) && record.Values[i] >= 0;
                         if (!valid) { invalidRows++; continue; }
+                        if (cells.Length == 9) { record.Application = cells[7]; record.WindowTitle = cells[8]; }
                         if (record.Time >= from && record.Time <= to) result.Add(record);
                     }
                 }

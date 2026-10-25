@@ -30,7 +30,7 @@ internal static class HistoryTests
             var records = reopened.Read(start, start.AddDays(2), out invalid);
             Check(records.Count == 4 && invalid == 0, "Persistence across reopen");
             Check(records[1].Values[4] == 48.5, "Invariant decimal round trip");
-            Check(Directory.GetFiles(directory).Length == 2, "Daily rotation");
+            Check(Directory.GetFiles(Path.Combine(directory, "Windows"), "*.csv").Length == 2, "Daily rotation");
             var minutes = HistoryStore.Aggregate(records, TimeSpan.FromMinutes(1));
             Check(minutes.Count == 3 && minutes[0].Values[0] == 7, "Minute totals and boundary");
             Check(Math.Abs(records[0].TotalMeters - 12.0762) < 0.00001, "All metrics contribute to total distance");
@@ -39,7 +39,7 @@ internal static class HistoryTests
             var days = HistoryStore.Aggregate(records, TimeSpan.FromDays(1));
             Check(days.Count == 2 && days.Sum(r => r.Values[0]) == 18, "Daily aggregation preserves totals");
             Check(reopened.Read(start.AddSeconds(59), start.AddMinutes(1), out invalid).Count == 2, "Time range bounds");
-            File.AppendAllText(Directory.GetFiles(directory).First(), "broken,row\n2026-10-25T10:00:00.0000000+00:00,NaN,0,0,0,0,0\n");
+            File.AppendAllText(Directory.GetFiles(Path.Combine(directory, "Windows"), "*.csv").First(), "broken,row\n2026-10-25T10:00:00.0000000+00:00,NaN,0,0,0,0,0\n");
             records = reopened.Read(start, start.AddDays(2), out invalid);
             Check(records.Count == 4 && invalid == 2, "Damaged records skipped and reported");
             Check(HistoryStore.Aggregate(new HistoryRecord[0], TimeSpan.FromDays(1)).Count == 0, "Empty aggregation");
@@ -184,6 +184,85 @@ internal static class HistoryTests
             File.WriteAllText(preferencesPath, "<ViewPreferences><TimeSpacing>broken</TimeSpacing></ViewPreferences>");
             restored = ViewPreferences.Load(preferencesPath, out preferencesWarning);
             Check(preferencesWarning != null && restored.TimeSpacing == 40, "Corrupt settings fall back to defaults with a warning");
+            string workDirectory = Path.Combine(directory, "work-history");
+            var workStore = new HistoryStore(workDirectory);
+            var activity = new WindowActivity();
+            var artA = new WindowIdentity("CLIPStudioPaint", "作品A, \"試作\".clip* - CLIP STUDIO PAINT");
+            var artB = new WindowIdentity("CLIPStudioPaint", "作品B.clip - CLIP STUDIO PAINT");
+            var browser = new WindowIdentity("Browser", "参考資料");
+            activity.Add(artA, 0, 2);
+            activity.Add(artA, 1, 1);
+            activity.BeginDrag(artA);
+            activity.AddMovement(browser, 96, true);
+            activity.EndDrag();
+            activity.AddMovement(browser, 48, false);
+            activity.Add(artB, 0, 3);
+            activity.Add(artB, 3, 4);
+            var firstBatch = activity.Snapshot(start);
+            Check(firstBatch.Count == 3 && firstBatch.Single(r => r.WindowTitle == artA.Title).Values[5] == 96 &&
+                firstBatch.Single(r => r.Application == "Browser").Values[4] == 48,
+                "Drag movement stays with the start window while normal movement follows hover");
+            Check(activity.Snapshot(start).Sum(r => r.Values[0]) == 5,
+                "A failed save can retry the unchanged activity snapshot");
+            workStore.AppendBatch(firstBatch);
+            activity.Add(artA, 0, 1);
+            activity.Commit(firstBatch);
+            var remaining = activity.Snapshot(start.AddSeconds(30));
+            Check(remaining.Count == 1 && remaining[0].Values[0] == 1,
+                "Committing a snapshot preserves events received after that snapshot");
+            workStore.AppendBatch(remaining);
+            activity.Commit(remaining);
+            Check(activity.Snapshot(start.AddMinutes(1)).Single().Values.All(v => v == 0),
+                "Saved activity is not recorded twice");
+            var workRecords = workStore.Read(start, start.AddMinutes(2), out invalid);
+            Check(invalid == 0 && workRecords.Count == 4 && workRecords.Any(r => r.WindowTitle == artA.Title),
+                "Unicode titles containing commas and quotes round-trip through history CSV");
+            var filteredA = HistoryStore.Filter(workRecords, "clipstudiopaint", "作品A");
+            Check(filteredA.Count == 2 && filteredA.Sum(r => r.Values[0]) == 3 && filteredA.Sum(r => r.Values[5]) == 96,
+                "Case-insensitive app and partial artwork filters select only the requested artwork");
+            var filteredB = HistoryStore.Filter(workRecords, "CLIP", "作品B");
+            Check(filteredB.Count == 1 && filteredB[0].Values[0] == 3 && filteredB[0].Values[5] == 0,
+                "Switching documents within one interval does not mix their counters");
+            var filteredGraph = new HistoryChartData(HistoryStore.Aggregate(filteredA, TimeSpan.FromMinutes(1)), TimeSpan.FromMinutes(1));
+            Check(filteredGraph.Value(0, 0, true) == 3 && Math.Abs(filteredGraph.Value(0, 5, true) - 0.0254) < 0.000001,
+                "Filtered cumulative graphs include only matching activity");
+            Check(HistoryStore.Filter(workRecords, "", "").Sum(r => r.Values[0]) == 6 &&
+                HistoryStore.Filter(workRecords, "", "存在しない作品").Count == 0,
+                "Clearing filters restores totals and unmatched filters return no records");
+            File.WriteAllText(Path.Combine(workDirectory, "2026-10-25.csv"),
+                "Time,Keys,LeftClicks,RightClicks,Wheel,MousePixels,DragPixels\n" +
+                start.ToString("o", CultureInfo.InvariantCulture) + ",10,0,0,0,0,0\n");
+            workRecords = workStore.Read(start, start.AddMinutes(2), out invalid);
+            Check(workRecords.Sum(r => r.Values[0]) == 16 && HistoryStore.Filter(workRecords, "", "作品A").Sum(r => r.Values[0]) == 3,
+                "Legacy history remains visible in all-records view without inventing artwork attribution");
+            var normalizedTitle = new WindowIdentity("CLIP", "作品\r\nC");
+            workStore.Append(new HistoryRecord { Time = start, Application = normalizedTitle.Application, WindowTitle = normalizedTitle.Title });
+            Check(workStore.Read(start, start, out invalid).Any(r => r.WindowTitle == "作品  C") && invalid == 0,
+                "Multiline captions are stored on one CSV line");
+            var retryActivity = new WindowActivity();
+            retryActivity.Add(artA, 5, 12);
+            string blockedPath = Path.Combine(directory, "blocked-history");
+            File.WriteAllText(blockedPath, "not a directory");
+            bool failedWrite = false;
+            try { new HistoryStore(blockedPath).AppendBatch(retryActivity.Snapshot(start)); }
+            catch (IOException) { failedWrite = true; }
+            Check(failedWrite && retryActivity.Snapshot(start).Sum(r => r.Values[5]) == 12,
+                "A real storage failure leaves activity available for retry");
+            var retried = retryActivity.Snapshot(start);
+            workStore.AppendBatch(retried);
+            retryActivity.Commit(retried);
+            Check(retryActivity.Snapshot(start).Sum(r => r.Values[5]) == 0,
+                "A successful retry commits only the saved activity");
+            File.AppendAllText(Directory.GetFiles(Path.Combine(workDirectory, "Windows"), "*.csv").First(),
+                start.ToString("o", CultureInfo.InvariantCulture) + ",1,0,0,0,0,0,\"CLIP\",\"unclosed title\n");
+            workStore.Read(start, start.AddMinutes(2), out invalid);
+            Check(invalid == 1, "Malformed quoted context rows are reported and skipped");
+            preferences.ApplicationFilter = "CLIPStudioPaint";
+            preferences.ArtworkFilter = "作品A, \"試作\"";
+            preferences.Save(preferencesPath);
+            restored = ViewPreferences.Load(preferencesPath, out preferencesWarning);
+            Check(restored.ApplicationFilter == preferences.ApplicationFilter && restored.ArtworkFilter == preferences.ArtworkFilter,
+                "App and artwork filters survive restart without losing Unicode or quotes");
             Console.WriteLine("Paint candidates for a 60-minute viewport: 63 / 43,200 records");
             Console.WriteLine("PASS: " + checks + " history checks");
         }

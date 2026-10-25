@@ -13,6 +13,7 @@
     <Compile Include="..\ControllerCounter\Form1.Resize.cs" Link="Form1.Resize.cs" />
     <Compile Include="..\ControllerCounter\ViewPreferences.cs" Link="ViewPreferences.cs" />
     <Compile Include="..\ControllerCounter\Form1.Preferences.cs" Link="Form1.Preferences.cs" />
+    <Compile Include="..\ControllerCounter\WindowActivity.cs" Link="WindowActivity.cs" />
     <Compile Include="ChartRenderingTests.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

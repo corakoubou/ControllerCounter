@@ -32,6 +32,8 @@ namespace ControllerCounter
                 SelectSaved(historyChartType, viewPreferences.ChartType);
                 SelectSaved(historyValueMode, viewPreferences.ValueMode);
                 chartSpacing.Value = viewPreferences.TimeSpacing;
+                applicationFilter.Text = viewPreferences.ApplicationFilter ?? "";
+                artworkFilter.Text = viewPreferences.ArtworkFilter ?? "";
                 for (int i = 0; i < columnChecks.Count; i++) columnChecks[i].Checked = viewPreferences.VisibleColumns[i];
                 ApplyMetricAxisPreferences();
             }
@@ -102,6 +104,8 @@ namespace ControllerCounter
         private void SaveViewPreferences()
         {
             preferencesSaveTimer.Stop();
+            viewPreferences.ApplicationFilter = applicationFilter.Text;
+            viewPreferences.ArtworkFilter = artworkFilter.Text;
             viewPreferences.Range = historyRange.Text;
             viewPreferences.Unit = historyUnit.Text;
             viewPreferences.Metric = historyMetric.Text;

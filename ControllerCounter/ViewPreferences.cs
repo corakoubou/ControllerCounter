@@ -9,6 +9,7 @@ namespace ControllerCounter
 {
     public sealed class ViewPreferences
     {
+        public string ApplicationFilter = "", ArtworkFilter = "";
         public string Range = "過去24時間";
         public string Unit = "1分";
         public string Metric = "キー入力";
