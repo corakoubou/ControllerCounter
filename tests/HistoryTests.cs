@@ -60,6 +60,43 @@ internal static class HistoryTests
             Check(HistoryTimeline.GetOffset(start, start, TimeSpan.FromMinutes(1), 40) <
                 HistoryTimeline.GetOffset(start.AddMinutes(1), start, TimeSpan.FromMinutes(1), 40),
                 "Older time rows are above newer time rows");
+            // The selected interval excludes the next day's sample. Cumulative values
+            // start with this interval's activity, never previously recorded activity.
+            var selected = reopened.Read(start.AddSeconds(59), start.AddMinutes(1), out invalid);
+            var data = new HistoryChartData(HistoryStore.Aggregate(selected, TimeSpan.FromMinutes(1)), TimeSpan.FromMinutes(1));
+            Check(data.Count == 2 && data.Value(0, 0, true) == 5 && data.Value(1, 0, true) == 6,
+                "Cumulative values include only the selected period");
+            Check(data.Value(1, 0, false) == 1 && data.Maximum(0, false) == 5 && data.Maximum(0, true) == 6,
+                "Interval values remain unchanged when cumulative mode is available");
+            Check(Math.Abs(data.Value(1, 6, true) - selected.Sum(r => r.TotalMeters)) < 0.000001,
+                "Cumulative total distance includes all selected metrics");
+            Check(Math.Abs(data.Value(1, 4, true) - 48.5 / 96 * 0.0254) < 0.000001,
+                "Cumulative mouse distances retain meter conversion");
+            var otherPeriod = new HistoryChartData(new[] { records.Last() }, TimeSpan.FromMinutes(1));
+            Check(otherPeriod.Value(0, 0, true) == 10, "Changing the period resets cumulative values");
+            var large = Enumerable.Range(0, 43200).Select(i => new HistoryRecord
+            {
+                Time = start.AddMinutes(i), Values = new double[] { 1, 0, 0, 0, 0, 0 }
+            }).ToList();
+            var largeData = new HistoryChartData(large, TimeSpan.FromMinutes(1));
+            int first, end;
+            largeData.VisibleRange(20000, 20060, out first, out end);
+            Check(first == 19999 && end == 20062 && end - first == 63,
+                "Thirty days of samples paint only visible rows and line endpoints");
+            Check(largeData.Value(43200 - 1, 0, true) == 43200 && largeData.Maximum(0, true) == 43200,
+                "Cumulative values and maximum are cached across the full period");
+            largeData.VisibleRange(-10, 2, out first, out end);
+            Check(first == 0 && end == 4, "Visible range clamps at the oldest sample");
+            largeData.VisibleRange(43198, 44000, out first, out end);
+            Check(first == 43197 && end == 43200, "Visible range clamps at the newest sample");
+            var emptyData = new HistoryChartData(new HistoryRecord[0], TimeSpan.FromMinutes(1));
+            emptyData.VisibleRange(0, 100, out first, out end);
+            Check(first == 0 && end == 0 && emptyData.Maximum(0, true) == 0, "Empty cumulative series");
+            var sparseData = new HistoryChartData(new[] { large[0], large[1000] }, TimeSpan.FromMinutes(1));
+            sparseData.VisibleRange(400, 410, out first, out end);
+            Check(first == 0 && end == 2 && sparseData.Buckets[1] == 1000,
+                "Missing periods preserve spacing and both potential line endpoints");
+            Console.WriteLine("Paint candidates for a 60-minute viewport: 63 / 43,200 records");
             Console.WriteLine("PASS: " + checks + " history checks");
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }

@@ -27,6 +27,59 @@ namespace ControllerCounter
         }
     }
 
+    internal sealed class HistoryChartData
+    {
+        private readonly double[][] intervalValues, cumulativeValues;
+        private readonly double[] intervalMax = new double[7], cumulativeMax = new double[7];
+        public readonly DateTimeOffset[] Times;
+        public readonly double[] Buckets;
+        public int Count { get { return Times.Length; } }
+
+        // Build once per history refresh, never during a paint or resize.
+        public HistoryChartData(IList<HistoryRecord> records, TimeSpan unit)
+        {
+            Times = new DateTimeOffset[records.Count];
+            Buckets = new double[records.Count];
+            intervalValues = new double[records.Count][];
+            cumulativeValues = new double[records.Count][];
+            var totals = new double[7];
+            for (int row = 0; row < records.Count; row++)
+            {
+                var record = records[row];
+                Times[row] = record.Time;
+                Buckets[row] = HistoryTimeline.GetOffset(record.Time, records[0].Time, unit, 1);
+                intervalValues[row] = new double[7];
+                cumulativeValues[row] = new double[7];
+                for (int metric = 0; metric < 7; metric++)
+                {
+                    double value = metric == 6 ? record.TotalMeters : metric >= 4 ? record.Values[metric] / 96 * 0.0254 : record.Values[metric];
+                    intervalValues[row][metric] = value;
+                    totals[metric] += value;
+                    cumulativeValues[row][metric] = totals[metric];
+                    intervalMax[metric] = Math.Max(intervalMax[metric], value);
+                    cumulativeMax[metric] = totals[metric];
+                }
+            }
+        }
+
+        public double Value(int row, int metric, bool cumulative)
+        {
+            return (cumulative ? cumulativeValues : intervalValues)[row][metric];
+        }
+        public double Maximum(int metric, bool cumulative) { return (cumulative ? cumulativeMax : intervalMax)[metric]; }
+
+        // Binary search restricts paint work to visible samples plus line endpoints.
+        public void VisibleRange(double fromBucket, double toBucket, out int first, out int end)
+        {
+            int low = 0, high = Count;
+            while (low < high) { int mid = low + (high - low) / 2; if (Buckets[mid] < fromBucket) low = mid + 1; else high = mid; }
+            first = Math.Max(0, low - 1);
+            high = Count;
+            while (low < high) { int mid = low + (high - low) / 2; if (Buckets[mid] <= toBucket) low = mid + 1; else high = mid; }
+            end = Math.Min(Count, low + 1);
+        }
+    }
+
     internal sealed class HistoryStore
     {
         private readonly string directory;

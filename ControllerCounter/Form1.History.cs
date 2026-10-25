@@ -15,7 +15,7 @@ namespace ControllerCounter
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ControllerCounter", "History"));
         private Timer recordTimer;
         private double[] recordedCounters = new double[6];
-        private ComboBox historyRange, historyUnit, historyMetric, historyChartType;
+        private ComboBox historyRange, historyUnit, historyMetric, historyChartType, historyValueMode;
         private DataGridView historyGrid;
         private Label historyStatus;
         private HistoryChartPanel historyChart;
@@ -24,6 +24,7 @@ namespace ControllerCounter
         private TimeSpan chartUnit;
         private static readonly string[] MetricNames = { "キー入力", "左クリック", "右クリック", "ホイール", "マウス移動 (m)", "ドラッグ (m)", "総入力距離 (m)" };
         private List<HistoryRecord> chartRecords = new List<HistoryRecord>();
+        private HistoryChartData chartData = new HistoryChartData(new HistoryRecord[0], TimeSpan.FromMinutes(1));
         private bool historyDirty = true;
 
         private double[] CurrentCounters()
@@ -41,20 +42,28 @@ namespace ControllerCounter
             filters.Controls.Add(new Label { Text = "集計単位", AutoSize = true });
             filters.Controls.Add(historyUnit);
             chartSpacing = new NumericUpDown { Minimum = 4, Maximum = 200, Value = 40, Increment = 4, Width = 65 };
-            filters.Controls.Add(new Label { Text = "時間行の間隔(px)", AutoSize = true });
+            filters.Controls.Add(new Label { Text = "時間目盛りの間隔(px)", AutoSize = true });
             filters.Controls.Add(chartSpacing);
             var refresh = new Button { Text = "更新", AutoSize = true };
             refresh.Click += (s, e) => RefreshHistory();
             filters.Controls.Add(refresh);
             historyStatus = new Label { Dock = DockStyle.Bottom, Height = 58, AutoEllipsis = true };
             historyGrid = new DataGridView { Dock = DockStyle.Fill, ReadOnly = true, AllowUserToAddRows = false,
-                AllowUserToDeleteRows = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false };
+                AllowUserToDeleteRows = false, VirtualMode = true, AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, RowHeadersVisible = false };
             foreach (string title in new[] { "期間開始", "キー", "左クリック", "右クリック", "ホイール", "移動(m)", "ドラッグ(m)", "総距離(m)" })
                 historyGrid.Columns.Add(title, title);
             historyGrid.Columns[0].FillWeight = 180;
+            historyGrid.CellValueNeeded += (s, e) =>
+            {
+                if (e.RowIndex < 0 || e.RowIndex >= chartRecords.Count) return;
+                var row = chartRecords[e.RowIndex];
+                e.Value = e.ColumnIndex == 0 ? (object)row.Time.ToString("MM/dd HH:mm") :
+                    e.ColumnIndex <= 4 ? (object)row.Values[e.ColumnIndex - 1] :
+                    e.ColumnIndex == 7 ? row.TotalMeters.ToString("F2") :
+                    (row.Values[e.ColumnIndex - 1] / 96 * 0.0254).ToString("F2");
+            };
             historyChart = new HistoryChartPanel { Dock = DockStyle.Fill, BackColor = Color.White };
             historyChart.Paint += PaintHistoryChart;
-            historyChart.ClientSizeChanged += (s, e) => historyChart.Invalidate();
             decimal previousSpacing = chartSpacing.Value;
             chartSpacing.ValueChanged += (s, e) =>
             {
@@ -66,11 +75,18 @@ namespace ControllerCounter
                 historyChart.Invalidate();
             };
             historyMetric = HistoryChoice(MetricNames, 0);
-            historyChartType = HistoryChoice(new[] { "折れ線グラフ", "横棒グラフ" }, 1);
+            historyChartType = HistoryChoice(new[] { "折れ線グラフ", "横棒グラフ", "縦棒グラフ" }, 1);
             historyMetric.SelectedIndexChanged += (s, e) => historyChart.Invalidate();
-            historyChartType.SelectedIndexChanged += (s, e) => historyChart.Invalidate();
+            historyChartType.SelectedIndexChanged += (s, e) =>
+            {
+                historyChart.HorizontalTimeline = historyChartType.SelectedIndex == 2;
+                LayoutHistoryChart(true);
+            };
+            historyValueMode = HistoryChoice(new[] { "区間の量", "期間内の累計" }, 0);
+            historyValueMode.SelectedIndexChanged += (s, e) => historyChart.Invalidate();
             var graphOptions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true,
                 FlowDirection = FlowDirection.RightToLeft, WrapContents = true };
+            graphOptions.Controls.Add(historyValueMode);
             graphOptions.Controls.Add(historyChartType);
             graphOptions.Controls.Add(historyMetric);
             graphOptions.Controls.Add(new Label { Text = "グラフの項目・種類", AutoSize = true });
@@ -154,10 +170,9 @@ namespace ControllerCounter
                     chartFrom = chartRecords[0].Time;
                     chartTo = chartRecords[chartRecords.Count - 1].Time.Add(chartUnit);
                 }
-                historyGrid.Rows.Clear();
-                foreach (var r in chartRecords)
-                    historyGrid.Rows.Add(r.Time.ToString("MM/dd HH:mm"), r.Values[0], r.Values[1], r.Values[2], r.Values[3],
-                        (r.Values[4] / 96 * 0.0254).ToString("F2"), (r.Values[5] / 96 * 0.0254).ToString("F2"), r.TotalMeters.ToString("F2"));
+                chartData = new HistoryChartData(chartRecords, chartUnit);
+                historyGrid.RowCount = chartRecords.Count;
+                historyGrid.Invalidate();
                 var totals = Enumerable.Range(0, 6).Select(i => records.Sum(r => r.Values[i])).ToArray();
                 historyStatus.Text = string.Format("期間合計: キー {0:N0} / 左 {1:N0} / 右 {2:N0} / ホイール {3:N0} / 移動 {4:F2}m / ドラッグ {5:F2}m / 総距離 {6:F2}m\n30秒ごとに自動保存（終了時も保存）。記録 {7:N0}件、読めない行 {8}件。空白の期間は記録なし。",
                     totals[0], totals[1], totals[2], totals[3], totals[4] / 96 * 0.0254, totals[5] / 96 * 0.0254,
@@ -176,55 +191,70 @@ namespace ControllerCounter
             if (historyChart == null || chartUnit.Ticks <= 0) return;
             int height = chartRecords.Count == 0 ? 0 :
                 (int)Math.Ceiling(HistoryTimeline.GetOffset(chartTo, chartFrom, chartUnit, (double)chartSpacing.Value)) + 75;
-            historyChart.ContentHeight = height;
+            historyChart.ContentLength = height + (historyChart.HorizontalTimeline && height > 0 ? 70 : 0);
             if (resetScroll) historyChart.ScrollOffset = 0;
             historyChart.Invalidate();
         }
 
         private sealed class HistoryChartPanel : Panel
         {
-            private readonly VScrollBar scrollBar;
-            private int contentHeight;
+            private readonly VScrollBar verticalBar;
+            private readonly HScrollBar horizontalBar;
+            private int contentLength;
+            private bool horizontalTimeline;
+            private ScrollBar ActiveBar { get { return horizontalTimeline ? (ScrollBar)horizontalBar : verticalBar; } }
+            private int ViewportLength { get { return horizontalTimeline ? ClientSize.Width : ClientSize.Height; } }
 
             public HistoryChartPanel()
             {
                 SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-                // AutoScroll moves existing pixels, including our fixed title and axes.
-                // Use an explicit scrollbar so every scroll redraws from data instead.
-                AutoScroll = false;
-                scrollBar = new VScrollBar { Dock = DockStyle.Right, Visible = false };
-                scrollBar.ValueChanged += (s, e) => Invalidate();
-                Controls.Add(scrollBar);
+                AutoScroll = false; // Native AutoScroll would move the fixed title and axes.
+                verticalBar = new VScrollBar { Dock = DockStyle.Right, Visible = false };
+                horizontalBar = new HScrollBar { Dock = DockStyle.Bottom, Visible = false };
+                verticalBar.ValueChanged += (s, e) => Invalidate();
+                horizontalBar.ValueChanged += (s, e) => Invalidate();
+                Controls.Add(verticalBar);
+                Controls.Add(horizontalBar);
             }
 
-            public int PlotClientWidth { get { return ClientSize.Width - (scrollBar.Visible ? scrollBar.Width : 0); } }
+            public bool HorizontalTimeline
+            {
+                get { return horizontalTimeline; }
+                set { if (horizontalTimeline == value) return; horizontalTimeline = value; UpdateScrollRange(); ScrollOffset = 0; }
+            }
+            public int PlotClientWidth { get { return ClientSize.Width - (verticalBar.Visible ? verticalBar.Width : 0); } }
+            public int PlotClientHeight { get { return ClientSize.Height - (horizontalBar.Visible ? horizontalBar.Height : 0); } }
             public int ScrollOffset
             {
-                get { return scrollBar.Value; }
-                set { scrollBar.Value = Math.Max(0, Math.Min(value, Math.Max(0, contentHeight - ClientSize.Height))); }
+                get { return ActiveBar.Value; }
+                set { ActiveBar.Value = Math.Max(0, Math.Min(value, Math.Max(0, contentLength - ViewportLength))); }
             }
-            public int ContentHeight
+            public int ContentLength
             {
-                get { return contentHeight; }
-                set { contentHeight = Math.Max(0, value); UpdateScrollRange(); }
+                get { return contentLength; }
+                set { if (contentLength == value) return; contentLength = Math.Max(0, value); UpdateScrollRange(); }
             }
 
             protected override void OnSizeChanged(EventArgs e)
             {
                 base.OnSizeChanged(e);
-                if (scrollBar != null) UpdateScrollRange();
+                if (verticalBar != null && horizontalBar != null) UpdateScrollRange();
             }
 
             private void UpdateScrollRange()
             {
-                int offset = Math.Min(ScrollOffset, Math.Max(0, contentHeight - ClientSize.Height));
-                scrollBar.Minimum = 0;
-                scrollBar.Maximum = Math.Max(0, contentHeight - 1);
-                scrollBar.LargeChange = Math.Max(1, ClientSize.Height);
-                scrollBar.SmallChange = 20;
-                scrollBar.Value = offset;
-                scrollBar.Visible = contentHeight > ClientSize.Height;
+                var bar = ActiveBar;
+                int offset = Math.Min(bar.Value, Math.Max(0, contentLength - ViewportLength));
+                // Set only changed properties to avoid repeated scrollbar/layout updates on resize.
+                int maximum = Math.Max(0, contentLength - 1);
+                if (bar.Maximum != maximum) bar.Maximum = maximum;
+                int page = Math.Max(1, ViewportLength);
+                if (bar.LargeChange != page) bar.LargeChange = page;
+                if (bar.SmallChange != 20) bar.SmallChange = 20;
+                if (bar.Value != offset) bar.Value = offset;
+                verticalBar.Visible = !horizontalTimeline && contentLength > ViewportLength;
+                horizontalBar.Visible = horizontalTimeline && contentLength > ViewportLength;
                 Invalidate();
             }
 
@@ -232,7 +262,8 @@ namespace ControllerCounter
             {
                 base.OnMouseWheel(e);
                 int lines = SystemInformation.MouseWheelScrollLines;
-                int step = lines < 0 ? Math.Max(1, ClientSize.Height) : Math.Max(1, lines) * scrollBar.SmallChange;
+                if (lines == 0) return;
+                int step = lines < 0 ? Math.Max(1, ViewportLength) : lines * ActiveBar.SmallChange;
                 ScrollOffset -= e.Delta / SystemInformation.MouseWheelScrollDelta * step;
             }
         }
@@ -240,67 +271,82 @@ namespace ControllerCounter
         private void PaintHistoryChart(object sender, PaintEventArgs e)
         {
             int metric = historyMetric.SelectedIndex;
+            bool cumulative = historyValueMode.SelectedIndex == 1;
+            bool verticalBars = historyChartType.SelectedIndex == 2;
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            e.Graphics.DrawString(MetricNames[metric] + " （縦軸: 時刻・上から古い順 / 集計単位: " + historyUnit.Text + "）", Font, Brushes.Black, 8, 4);
-            if (chartRecords.Count == 0)
+            string axes = verticalBars ? "横軸: 時刻・左から古い順" : "縦軸: 時刻・上から古い順";
+            e.Graphics.DrawString(MetricNames[metric] + " / " + historyValueMode.Text + " （" + axes + " / " + historyUnit.Text + "）", Font, Brushes.Black, 8, 4);
+            if (chartData.Count == 0)
             {
                 e.Graphics.DrawString("この期間の記録はありません", Font, Brushes.Gray, 20, 35);
                 return;
             }
-            Func<HistoryRecord, double> value = r => metric == 6 ? r.TotalMeters : metric >= 4 ? r.Values[metric] / 96 * 0.0254 : r.Values[metric];
-            double max = Math.Max(1, chartRecords.Max(value));
-            var area = new Rectangle(115, 32, Math.Max(1, historyChart.PlotClientWidth - 145), Math.Max(10, historyChart.ClientSize.Height - 62));
+            double max = Math.Max(1, chartData.Maximum(metric, cumulative));
+            var area = new Rectangle(115, 32, Math.Max(1, historyChart.PlotClientWidth - 145), Math.Max(10, historyChart.PlotClientHeight - 62));
             double spacing = (double)chartSpacing.Value;
             int scroll = historyChart.ScrollOffset;
+            int timeLength = verticalBars ? area.Width : area.Height;
             using (var gridPen = new Pen(Color.LightGray))
             using (var linePen = new Pen(Color.SteelBlue, 2))
             {
-                // The value axis stays fixed while the time rows scroll vertically.
                 for (int i = 0; i <= 4; i++)
                 {
-                    float x = area.Left + area.Width * i / 4f;
-                    e.Graphics.DrawLine(gridPen, x, area.Top, x, area.Bottom);
                     string label = (max * i / 4).ToString("0.##");
-                    e.Graphics.DrawString(label, Font, Brushes.Gray, x - e.Graphics.MeasureString(label, Font).Width / 2, area.Bottom + 4);
-                }
-                var clip = e.Graphics.Save();
-                // Preserve the dirty-region clip supplied by WinForms. Replacing it can
-                // copy unpainted pixels from the partial double buffer into other areas.
-                e.Graphics.SetClip(new Rectangle(0, area.Top, area.Right + 1, area.Height), CombineMode.Intersect);
-                int labelStep = Math.Max(1, (int)Math.Ceiling((Font.Height + 6) / spacing));
-                int firstLabel = Math.Max(0, (int)(scroll / spacing) / labelStep * labelStep);
-                for (int bucket = firstLabel; ; bucket += labelStep)
-                {
-                    float y = area.Top + (float)((bucket + 0.5) * spacing - scroll);
-                    if (y > area.Bottom) break;
-                    DateTimeOffset time = chartFrom.AddTicks(bucket * chartUnit.Ticks);
-                    if (time >= chartTo) break;
-                    e.Graphics.DrawString(time.ToLocalTime().ToString("MM/dd HH:mm"), Font, Brushes.Gray, 8, y - Font.Height / 2f);
-                }
-                e.Graphics.SetClip(area, CombineMode.Intersect);
-                PointF? previous = null;
-                HistoryRecord previousRecord = null;
-                foreach (var record in chartRecords)
-                {
-                    var point = new PointF(area.Left + (float)(value(record) / max * area.Width),
-                        area.Top + (float)(HistoryTimeline.GetOffset(record.Time, chartFrom, chartUnit, spacing) + spacing / 2 - scroll));
-                    if (historyChartType.SelectedIndex == 1)
+                    if (verticalBars)
                     {
-                        float barHeight = (float)Math.Max(2, Math.Min(60, spacing * 0.65));
-                        if (point.Y + barHeight / 2 >= area.Top && point.Y - barHeight / 2 <= area.Bottom && value(record) > 0)
-                            e.Graphics.FillRectangle(Brushes.SteelBlue, area.Left, point.Y - barHeight / 2, point.X - area.Left, barHeight);
+                        float y = area.Bottom - area.Height * i / 4f;
+                        e.Graphics.DrawLine(gridPen, area.Left, y, area.Right, y);
+                        e.Graphics.DrawString(label, Font, Brushes.Gray, 8, y - Font.Height / 2f);
                     }
                     else
                     {
-                        // Only consecutive measured buckets are connected; gaps remain unmeasured.
-                        if (previous.HasValue && record.Time - previousRecord.Time == chartUnit &&
-                            point.Y >= area.Top && previous.Value.Y <= area.Bottom)
+                        float x = area.Left + area.Width * i / 4f;
+                        e.Graphics.DrawLine(gridPen, x, area.Top, x, area.Bottom);
+                        e.Graphics.DrawString(label, Font, Brushes.Gray, x - e.Graphics.MeasureString(label, Font).Width / 2, area.Bottom + 4);
+                    }
+                }
+                var clip = e.Graphics.Save();
+                e.Graphics.SetClip(verticalBars ? new Rectangle(area.Left, area.Top, area.Width, area.Height + 28) :
+                    new Rectangle(0, area.Top, area.Right + 1, area.Height), CombineMode.Intersect);
+                int labelStep = Math.Max(1, (int)Math.Ceiling((verticalBars ? 110 : Font.Height + 6) / spacing));
+                int firstLabel = Math.Max(0, (int)(scroll / spacing) / labelStep * labelStep);
+                for (int bucket = firstLabel; ; bucket += labelStep)
+                {
+                    float position = (float)((bucket + 0.5) * spacing - scroll);
+                    if (position > timeLength) break;
+                    DateTimeOffset time = chartFrom.AddTicks(bucket * chartUnit.Ticks);
+                    if (time >= chartTo) break;
+                    e.Graphics.DrawString(time.ToLocalTime().ToString("MM/dd HH:mm"), Font, Brushes.Gray,
+                        verticalBars ? area.Left + position : 8, verticalBars ? area.Bottom + 4 : area.Top + position - Font.Height / 2f);
+                }
+                e.Graphics.SetClip(area, CombineMode.Intersect);
+                int first, end;
+                chartData.VisibleRange(scroll / spacing - 1, (scroll + timeLength) / spacing + 1, out first, out end);
+                PointF? previous = null;
+                int previousRow = -1;
+                for (int row = first; row < end; row++)
+                {
+                    double value = chartData.Value(row, metric, cumulative);
+                    float timePosition = (float)((chartData.Buckets[row] + 0.5) * spacing - scroll);
+                    var point = verticalBars ? new PointF(area.Left + timePosition, area.Bottom - (float)(value / max * area.Height)) :
+                        new PointF(area.Left + (float)(value / max * area.Width), area.Top + timePosition);
+                    if (historyChartType.SelectedIndex != 0)
+                    {
+                        float thickness = (float)Math.Max(2, Math.Min(60, spacing * 0.65));
+                        if (value > 0)
+                        {
+                            if (verticalBars) e.Graphics.FillRectangle(Brushes.SteelBlue, point.X - thickness / 2, point.Y, thickness, area.Bottom - point.Y);
+                            else e.Graphics.FillRectangle(Brushes.SteelBlue, area.Left, point.Y - thickness / 2, point.X - area.Left, thickness);
+                        }
+                    }
+                    else
+                    {
+                        if (previous.HasValue && chartData.Times[row] - chartData.Times[previousRow] == chartUnit)
                             e.Graphics.DrawLine(linePen, previous.Value, point);
-                        if (point.Y >= area.Top - 2 && point.Y <= area.Bottom + 2)
-                            e.Graphics.FillEllipse(Brushes.SteelBlue, point.X - 2, point.Y - 2, 4, 4);
+                        e.Graphics.FillEllipse(Brushes.SteelBlue, point.X - 2, point.Y - 2, 4, 4);
                     }
                     previous = point;
-                    previousRecord = record;
+                    previousRow = row;
                 }
                 e.Graphics.Restore(clip);
             }
