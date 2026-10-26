@@ -283,6 +283,29 @@ internal static class HistoryTests
             var noMatches = HistoryStore.FillChartGaps(new HistoryRecord[0], TimeSpan.FromMinutes(1), gapStart, gapStart.AddMinutes(2));
             Check(noMatches.Count == 3 && noMatches.All(r => r.Values.All(v => v == 0)),
                 "An unmatched artwork filter can show zero points across the recorded period");
+            string deletionDirectory = Path.Combine(directory, "deletion-test");
+            var deletionStore = new HistoryStore(deletionDirectory);
+            deletionStore.Append(new HistoryRecord { Time = start, Application = "CLIP", WindowTitle = "作品A" });
+            deletionStore.Append(new HistoryRecord { Time = start.AddDays(1), Application = "Browser", WindowTitle = "別作品" });
+            File.WriteAllText(Path.Combine(deletionDirectory, "2026-10-25.csv"), "legacy history");
+            File.WriteAllText(Path.Combine(deletionDirectory, "export.csv"), "export to preserve");
+            File.WriteAllText(Path.Combine(deletionDirectory, "view-settings.xml"), "settings to preserve");
+            Directory.CreateDirectory(Path.Combine(deletionDirectory, "backup"));
+            File.WriteAllText(Path.Combine(deletionDirectory, "backup", "2026-10-25.csv"), "backup to preserve");
+            Check(deletionStore.DeleteAll() == 3 && deletionStore.Read(start, start.AddDays(2), out invalid).Count == 0,
+                "Delete all removes every legacy and artwork daily file, regardless of filters");
+            Check(File.Exists(Path.Combine(deletionDirectory, "export.csv")) && File.Exists(Path.Combine(deletionDirectory, "view-settings.xml")) &&
+                File.Exists(Path.Combine(deletionDirectory, "backup", "2026-10-25.csv")), "Deletion preserves settings, exports and unrelated backups");
+            Check(deletionStore.DeleteAll() == 0, "Repeated deletion with no history is safe");
+            activity.Add(artA, 0, 5);
+            activity.ClearPending();
+            Check(activity.Snapshot(start).All(r => r.Values.All(v => v == 0)), "Pending data cannot restore deleted history on the next save");
+            activity.Add(artB, 0, 2);
+            var afterDeletion = activity.Snapshot(start.AddMinutes(1));
+            deletionStore.AppendBatch(afterDeletion);
+            activity.Commit(afterDeletion);
+            Check(deletionStore.Read(start, start.AddDays(2), out invalid).Sum(r => r.Values[0]) == 2,
+                "Recording resumes with only new activity after deletion");
             Console.WriteLine("Paint candidates for a 60-minute viewport: 63 / 43,200 records");
             Console.WriteLine("PASS: " + checks + " history checks");
         }

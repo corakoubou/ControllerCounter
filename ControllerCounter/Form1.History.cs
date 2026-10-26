@@ -45,6 +45,9 @@ namespace ControllerCounter
             var refresh = new Button { Text = "更新", AutoSize = true };
             refresh.Click += (s, e) => RefreshHistory();
             filters.Controls.Add(refresh);
+            var deleteHistory = new Button { Text = "履歴をすべて削除", AutoSize = true, ForeColor = Color.Firebrick };
+            deleteHistory.Click += (s, e) => DeleteAllHistory();
+            filters.Controls.Add(deleteHistory);
             applicationFilter = new ComboBox { Width = 170, DropDownStyle = ComboBoxStyle.DropDown };
             artworkFilter = new ComboBox { Width = 300, DropDownStyle = ComboBoxStyle.DropDown };
             filters.Controls.Add(new Label { Text = "アプリ（部分一致・空欄はすべて）", AutoSize = true });

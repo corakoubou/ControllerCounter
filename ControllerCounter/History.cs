@@ -86,6 +86,25 @@ namespace ControllerCounter
         private readonly string directory;
         public HistoryStore(string directory) { this.directory = directory; }
 
+        public int DeleteAll()
+        {
+            // Only recognized daily files belong to this feature. Never remove
+            // settings, exported files, backups or unrelated nested directories.
+            var files = new List<string>();
+            foreach (string folder in new[] { directory, Path.Combine(directory, "Windows") })
+            {
+                if (!Directory.Exists(folder)) continue;
+                foreach (string file in Directory.EnumerateFiles(folder, "*.csv"))
+                {
+                    DateTime date;
+                    if (DateTime.TryParseExact(Path.GetFileNameWithoutExtension(file), "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture, DateTimeStyles.None, out date)) files.Add(file);
+                }
+            }
+            foreach (string file in files) File.Delete(file);
+            return files.Count;
+        }
+
         public void Append(HistoryRecord record) { AppendBatch(new[] { record }); }
 
         public void AppendBatch(IList<HistoryRecord> records)

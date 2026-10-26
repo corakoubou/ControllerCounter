@@ -21,6 +21,7 @@ namespace ControllerCounter
         private readonly Dictionary<string, HistoryRecord> pending = new Dictionary<string, HistoryRecord>();
         private WindowIdentity dragOwner;
 
+        public void ClearPending() { pending.Clear(); }
         public void BeginDrag(WindowIdentity owner) { dragOwner = owner ?? WindowIdentity.Unknown; }
         public void EndDrag() { dragOwner = null; }
         public void AddMovement(WindowIdentity hover, double pixels, bool dragging)
